@@ -338,6 +338,90 @@
     },
     {
       "deleted_files": 7,
+      "expected": "corpus/expected/linux-xfs-baseline.json",
+      "file": "linux-xfs-baseline.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-baseline",
+      "platform": "linux",
+      "scenario": "baseline",
+      "sha256": "51c5c74c1465580f99fb988c63f419ff594f1b2354bcf6a46bb10f80231fc654",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 5,
+      "expected": "corpus/expected/linux-xfs-deeptree.json",
+      "file": "linux-xfs-deeptree.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-deeptree",
+      "platform": "linux",
+      "scenario": "deeptree",
+      "sha256": "4c29b172c0f8259bc83e8248d07fd5f65a7db011f7a648d12ed03dce61260633",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 252,
+      "expected": "corpus/expected/linux-xfs-fragmented.json",
+      "file": "linux-xfs-fragmented.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-fragmented",
+      "platform": "linux",
+      "scenario": "fragmented",
+      "sha256": "c8ce48cfb455a42280fe988803355d4e59195e1c56ca1acaf9bf72321bae4bd9",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 5,
+      "expected": "corpus/expected/linux-xfs-longnames.json",
+      "file": "linux-xfs-longnames.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-longnames",
+      "platform": "linux",
+      "scenario": "longnames",
+      "sha256": "d620082234dfd442b718e11711c1b1f446368a168b88c9114f57a356057f9678",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 154,
+      "expected": "corpus/expected/linux-xfs-nearlyfull.json",
+      "file": "linux-xfs-nearlyfull.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-nearlyfull",
+      "platform": "linux",
+      "scenario": "nearlyfull",
+      "sha256": "f8ec8c9f803747718ed8395a9dd245b74ed1a2b2521942189cb2bad5b417cf5e",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 5,
+      "expected": "corpus/expected/linux-xfs-nonascii.json",
+      "file": "linux-xfs-nonascii.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-nonascii",
+      "platform": "linux",
+      "scenario": "nonascii",
+      "sha256": "0f28e71defa79273d078f2489591a7097c0aa603918e445872a6f9a4fadf4328",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 3,
+      "expected": "corpus/expected/linux-xfs-overwritten.json",
+      "file": "linux-xfs-overwritten.img",
+      "filesystem": "xfs",
+      "name": "linux-xfs-overwritten",
+      "platform": "linux",
+      "scenario": "overwritten",
+      "sha256": "bdb13b5448e2830ed0e3d0f46002629b7100375575341a5c4e83bdf865839a31",
+      "size": 536870912,
+      "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+    },
+    {
+      "deleted_files": 7,
       "expected": "corpus/expected/macos-exfat-baseline.json",
       "file": "macos-exfat-baseline.img",
       "filesystem": "exfat",
@@ -841,11 +925,11 @@
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     }
   ],
-  "release": "corpus-v2",
+  "release": "corpus-v3",
   "tarball": {
-    "name": "unearth-corpus-v2.tar.gz",
-    "sha256": "6d1fa0401fb300cbf61cf56f05488ae6d4b7b78851597330349e8d7623fe7d4d",
-    "url": "https://github.com/trondegil/file-recover-lib/releases/download/corpus-v2/unearth-corpus-v2.tar.gz"
+    "name": "unearth-corpus-v3.tar.gz",
+    "sha256": "36847ab1e7d67fc5218c6211919c7cac8dcdab81cd2151743930cfa9c1dcc661",
+    "url": "https://github.com/trondegil/file-recover-lib/releases/download/corpus-v3/unearth-corpus-v3.tar.gz"
   },
   "version": 1
 }

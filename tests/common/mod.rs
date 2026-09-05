@@ -665,3 +665,56 @@ pub fn fat32_fragmented_volume(
     v[e + 28..e + 32].copy_from_slice(&(payload.len() as u32).to_le_bytes());
     v
 }
+
+/// A bare FAT32 volume with a deleted JPEG split around a *free* decoy
+/// cluster: the file's first cluster, then a free cluster holding bytes that
+/// cannot be JPEG scan data (`FF 7A`), then the JPEG's real continuation.
+/// Only JPEG structure, not the allocation map, tells the decoy apart.
+pub fn fat32_jpeg_decoy_volume(jpeg: &[u8]) -> Vec<u8> {
+    const BPS: usize = 512;
+    const RESERVED: usize = 32;
+    const FAT_SECTORS: usize = 512;
+    const DATA_CLUSTERS: usize = 65530;
+    const TOTAL: usize = RESERVED + FAT_SECTORS + DATA_CLUSTERS;
+    let first_data = RESERVED + FAT_SECTORS;
+    let root_cluster = 2usize;
+    assert!(jpeg.len() > BPS && jpeg.len() <= 3 * BPS);
+
+    let mut v = vec![0u8; TOTAL * BPS];
+    v[0] = 0xEB;
+    v[11..13].copy_from_slice(&(BPS as u16).to_le_bytes());
+    v[13] = 1;
+    v[14..16].copy_from_slice(&(RESERVED as u16).to_le_bytes());
+    v[16] = 1;
+    v[32..36].copy_from_slice(&(TOTAL as u32).to_le_bytes());
+    v[36..40].copy_from_slice(&(FAT_SECTORS as u32).to_le_bytes());
+    v[44..48].copy_from_slice(&(root_cluster as u32).to_le_bytes());
+    v[510] = 0x55;
+    v[511] = 0xAA;
+    let fat_base = RESERVED * BPS;
+    v[fat_base + root_cluster * 4..fat_base + root_cluster * 4 + 4]
+        .copy_from_slice(&0x0FFF_FFFFu32.to_le_bytes());
+
+    let cluster_off = |c: usize| (first_data + (c - 2)) * BPS;
+    // Cluster 3: JPEG start. Cluster 4: free decoy. Clusters 5, 6: the rest.
+    let mut chunks = jpeg.chunks(BPS);
+    let c3 = chunks.next().unwrap();
+    v[cluster_off(3)..cluster_off(3) + c3.len()].copy_from_slice(c3);
+    let decoy = cluster_off(4);
+    for i in 0..BPS / 2 {
+        v[decoy + 2 * i] = 0xFF;
+        v[decoy + 2 * i + 1] = 0x7A;
+    }
+    for (k, chunk) in chunks.enumerate() {
+        let off = cluster_off(5 + k);
+        v[off..off + chunk.len()].copy_from_slice(chunk);
+    }
+
+    let e = cluster_off(root_cluster);
+    v[e..e + 11].copy_from_slice(b"PHOTO   JPG");
+    v[e] = 0xE5;
+    v[e + 11] = 0x20;
+    v[e + 26..e + 28].copy_from_slice(&3u16.to_le_bytes());
+    v[e + 28..e + 32].copy_from_slice(&(jpeg.len() as u32).to_le_bytes());
+    v
+}

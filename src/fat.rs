@@ -408,7 +408,6 @@ impl Volume {
         // The FAT, read once: a deleted file's own chain is gone, but the
         // clusters still allocated to other files tell where it cannot be.
         let fat = self.load_fat(src);
-
         for df in deleted {
             if !opts.size_ok(df.size as u64) {
                 continue;
@@ -507,48 +506,44 @@ impl Volume {
         let cb = self.cluster_bytes();
         let max = self.max_valid_cluster();
         let mut remaining = df.size as u64;
-        let mut cluster = df.start_cluster;
         let mut buf = vec![0u8; cb as usize];
-        // Allocators hand out clusters from a moving pointer and wrap to the
-        // start of the volume when they hit the end, so a file that began in
-        // the last free stretch continues in the first free gap. Follow that
-        // once; never below the start cluster a second time.
-        let mut wrapped = false;
-        while remaining > 0 && cluster >= 2 {
-            if cluster > max {
-                if wrapped || fat.is_none() {
-                    break;
-                }
-                wrapped = true;
-                cluster = 2;
-                if let Some(fat) = fat {
-                    while cluster < df.start_cluster && !self.cluster_is_free(fat, cluster) {
-                        cluster += 1;
-                    }
-                }
-                if cluster >= df.start_cluster {
-                    break;
-                }
-            }
+        // Where the file's clusters can be: free ones, in order, wrapping once
+        // if a FAT is available to say what is free.
+        let has_fat = fat.is_some();
+        let is_free = |c: u32| fat.map(|f| self.cluster_is_free(f, c)).unwrap_or(true);
+        let mut walk = crate::recover::FreeWalk::new(df.start_cluster, max, is_free);
+        // A JPEG's structure rejects clusters that cannot be its own, which
+        // tells its data apart from a neighbour deleted after it.
+        let mut jpeg =
+            crate::recover::looks_like_jpeg_name(&df.path).then(crate::jpegscan::JpegScan::new);
+        const MAX_TRIES: u32 = 4096;
+        let mut tries = 0u32;
+        let mut written = 0u64;
+        let mut cluster = Some(df.start_cluster).filter(|&c| c >= 2 && c <= max);
+        while remaining > 0 {
+            let Some(c) = cluster else { break };
             let want = remaining.min(cb) as usize;
-            let n = src.read_at(self.cluster_offset(cluster), &mut buf[..want])?;
+            let n = src.read_at(self.cluster_offset(c), &mut buf[..want])?;
             if n == 0 {
                 break;
             }
-            out.write_all(&buf[..n])?;
-            remaining -= n as u64;
-            // Next cluster: the following one that is not allocated to a
-            // live file.
-            cluster += 1;
-            if let Some(fat) = fat {
-                let stop = if wrapped { df.start_cluster } else { max + 1 };
-                while cluster < stop && !self.cluster_is_free(fat, cluster) {
-                    cluster += 1;
-                }
-                if wrapped && cluster >= df.start_cluster {
-                    break;
+            if let Some(state) = &jpeg {
+                match state.accept(&buf[..n]) {
+                    Some(next) => jpeg = Some(next),
+                    None if written == 0 => jpeg = None, // not a JPEG after all
+                    None if has_fat && tries < MAX_TRIES => {
+                        tries += 1;
+                        cluster = walk.next_after(c, true);
+                        continue;
+                    }
+                    None => jpeg = None, // nothing fits; take the plain walk
                 }
             }
+            out.write_all(&buf[..n])?;
+            written += n as u64;
+            remaining -= n as u64;
+            tries = 0;
+            cluster = walk.next_after(c, has_fat);
         }
         out.flush().ok();
         let (out, digest) = out.into_parts();
@@ -987,6 +982,62 @@ mod tests {
         assert_eq!(short_name(&slot, false), "jpg-000.JPG");
         slot[12] = 0x10; // lowercase extension only
         assert_eq!(short_name(&slot, true), "_PG-000.jpg");
+    }
+
+    #[test]
+    fn dot_entry_detection() {
+        let mut dir = [0u8; 64];
+        dir[0..11].copy_from_slice(b".          ");
+        dir[11] = ATTR_DIRECTORY;
+        assert!(starts_with_dot_entry(&dir));
+        dir[11] = 0x20; // a file called "." cannot exist, so not a directory
+        assert!(!starts_with_dot_entry(&dir));
+        dir[0..11].copy_from_slice(b"FILE    TXT");
+        dir[11] = ATTR_DIRECTORY;
+        assert!(!starts_with_dot_entry(&dir));
+        assert!(!starts_with_dot_entry(&dir[..16]));
+    }
+
+    #[test]
+    fn parses_deleted_lfn_and_short_entries_and_skips_labels() {
+        let mut dir = Vec::new();
+        // Volume label entry: ignored.
+        let mut label = [b' '; 32];
+        label[0..6].copy_from_slice(b"CORPUS");
+        label[11] = ATTR_VOLUME_ID;
+        dir.extend_from_slice(&label);
+        // A deleted file with a long name spanning two LFN slots.
+        dir.extend_from_slice(&lfn_slot(0x42, "photo.jpg"));
+        dir.extend_from_slice(&lfn_slot(0x01, "holiday 2024 "));
+        let mut short = [b' '; 32];
+        short[0..11].copy_from_slice(b"HOLIDA~1JPG");
+        short[0] = DELETED_MARKER;
+        short[11] = 0x20;
+        short[12..26].fill(0); // reserved, times, and the high cluster word
+        short[26..28].copy_from_slice(&7u16.to_le_bytes());
+        short[28..32].copy_from_slice(&1234u32.to_le_bytes());
+        dir.extend_from_slice(&short);
+        // A live subdirectory.
+        let mut sub = [b' '; 32];
+        sub[0..11].copy_from_slice(b"DOCS       ");
+        sub[11] = ATTR_DIRECTORY;
+        sub[12..26].fill(0);
+        sub[26..28].copy_from_slice(&9u16.to_le_bytes());
+        dir.extend_from_slice(&sub);
+        // End of directory.
+        dir.extend_from_slice(&[0u8; 32]);
+
+        let entries = parse_entries(&dir);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "holiday 2024 photo.jpg");
+        assert!(entries[0].deleted);
+        assert!(!entries[0].is_dir);
+        assert_eq!(entries[0].start_cluster, 7);
+        assert_eq!(entries[0].size, 1234);
+        assert_eq!(entries[1].name, "DOCS");
+        assert!(entries[1].is_dir);
+        assert!(!entries[1].deleted);
+        assert_eq!(entries[1].start_cluster, 9);
     }
 
     #[test]

@@ -422,13 +422,7 @@ impl Volume {
                 // partial chain's bytes.
                 _ => {
                     out = HashingWriter::new(fs::File::create(&target)?);
-                    self.copy_skipping_allocated(
-                        src,
-                        df.first_cluster,
-                        df.data_length,
-                        bitmap,
-                        &mut out,
-                    )?
+                    self.copy_skipping_allocated(src, df, bitmap, &mut out)?
                 }
             }
         };
@@ -468,53 +462,52 @@ impl Volume {
     fn copy_skipping_allocated(
         &self,
         src: &Source,
-        first_cluster: u32,
-        len: u64,
+        df: &DeletedFile,
         bitmap: Option<&[u8]>,
         out: &mut impl Write,
     ) -> Result<u64> {
         let cb = self.cluster_bytes();
         let max = self.max_valid_cluster();
+        let len = df.data_length;
         let mut remaining = len;
-        let mut cluster = first_cluster;
         let mut buf = vec![0u8; cb as usize];
-        // Allocators wrap to the start of the volume when they reach the end,
-        // so a file that began in the last free stretch continues in the first
-        // free gap. Follow that once; never below the first cluster twice.
-        let mut wrapped = false;
-        while remaining > 0 && cluster >= 2 {
-            if cluster > max {
-                if wrapped || bitmap.is_none() {
-                    break;
-                }
-                wrapped = true;
-                cluster = 2;
-                if let Some(bitmap) = bitmap {
-                    while cluster < first_cluster && Self::cluster_allocated(bitmap, cluster) {
-                        cluster += 1;
-                    }
-                }
-                if cluster >= first_cluster {
-                    break;
-                }
-            }
+        let has_map = bitmap.is_some();
+        let is_free = |c: u32| {
+            bitmap
+                .map(|b| !Self::cluster_allocated(b, c))
+                .unwrap_or(true)
+        };
+        let mut walk = crate::recover::FreeWalk::new(df.first_cluster, max, is_free);
+        let mut jpeg =
+            crate::recover::looks_like_jpeg_name(&df.path).then(crate::jpegscan::JpegScan::new);
+        const MAX_TRIES: u32 = 4096;
+        let mut tries = 0u32;
+        let mut written = 0u64;
+        let mut cluster = Some(df.first_cluster).filter(|&c| c >= 2 && c <= max);
+        while remaining > 0 {
+            let Some(c) = cluster else { break };
             let want = remaining.min(cb) as usize;
-            let n = src.read_at(self.cluster_offset(cluster), &mut buf[..want])?;
+            let n = src.read_at(self.cluster_offset(c), &mut buf[..want])?;
             if n == 0 {
                 break;
             }
-            out.write_all(&buf[..n])?;
-            remaining -= n as u64;
-            cluster += 1;
-            if let Some(bitmap) = bitmap {
-                let stop = if wrapped { first_cluster } else { max + 1 };
-                while cluster < stop && Self::cluster_allocated(bitmap, cluster) {
-                    cluster += 1;
-                }
-                if wrapped && cluster >= first_cluster {
-                    break;
+            if let Some(state) = &jpeg {
+                match state.accept(&buf[..n]) {
+                    Some(next) => jpeg = Some(next),
+                    None if written == 0 => jpeg = None,
+                    None if has_map && tries < MAX_TRIES => {
+                        tries += 1;
+                        cluster = walk.next_after(c, true);
+                        continue;
+                    }
+                    None => jpeg = None,
                 }
             }
+            out.write_all(&buf[..n])?;
+            written += n as u64;
+            remaining -= n as u64;
+            tries = 0;
+            cluster = walk.next_after(c, has_map);
         }
         Ok(len - remaining)
     }
@@ -785,6 +778,76 @@ mod tests {
         assert!(Volume::cluster_allocated(&bitmap, 1_000_000));
         // Cluster numbers below 2 do not underflow.
         let _ = Volume::cluster_allocated(&bitmap, 0);
+    }
+
+    /// An entry set: file entry, stream extension, and enough name entries.
+    fn entry_set(
+        name: &str,
+        in_use: bool,
+        is_dir: bool,
+        first: u32,
+        len: u64,
+        no_chain: bool,
+    ) -> Vec<u8> {
+        let units: Vec<u16> = name.encode_utf16().collect();
+        let name_entries = units.len().div_ceil(15);
+        let mut set = vec![0u8; (2 + name_entries) * ENTRY_SIZE];
+        let flag = if in_use { INUSE_BIT } else { 0 };
+        set[0] = TYPE_FILE | flag;
+        set[1] = (1 + name_entries) as u8;
+        set[4..6].copy_from_slice(&(if is_dir { 0x10u16 } else { 0x20 }).to_le_bytes());
+        set[32] = TYPE_STREAM | flag;
+        set[33] = 0x01 | if no_chain { 0x02 } else { 0 };
+        set[35] = units.len() as u8;
+        set[40..48].copy_from_slice(&len.to_le_bytes());
+        set[52..56].copy_from_slice(&first.to_le_bytes());
+        set[56..64].copy_from_slice(&len.to_le_bytes());
+        for (k, chunk) in units.chunks(15).enumerate() {
+            let base = (2 + k) * ENTRY_SIZE;
+            set[base] = TYPE_NAME | flag;
+            for (j, u) in chunk.iter().enumerate() {
+                set[base + 2 + j * 2..base + 4 + j * 2].copy_from_slice(&u.to_le_bytes());
+            }
+        }
+        set
+    }
+
+    #[test]
+    fn parses_deleted_and_live_entry_sets_with_long_names() {
+        let mut dir = Vec::new();
+        dir.extend_from_slice(&entry_set(
+            "a rather long file name.jpeg",
+            false,
+            false,
+            40,
+            123_456,
+            false,
+        ));
+        dir.extend_from_slice(&entry_set("Bilder", true, true, 50, 4096, true));
+        dir.extend_from_slice(&[0u8; ENTRY_SIZE]);
+        let items = parse_entry_sets(&dir);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "a rather long file name.jpeg");
+        assert!(items[0].deleted);
+        assert!(!items[0].is_dir);
+        assert_eq!(items[0].first_cluster, 40);
+        assert_eq!(items[0].data_length, 123_456);
+        assert!(!items[0].no_fat_chain);
+        assert_eq!(items[1].name, "Bilder");
+        assert!(!items[1].deleted);
+        assert!(items[1].is_dir);
+        assert!(items[1].no_fat_chain);
+    }
+
+    #[test]
+    fn a_truncated_entry_set_is_dropped_not_panicked() {
+        let set = entry_set("x.bin", false, false, 40, 10, true);
+        // Cut after the file entry: no stream, no name.
+        let items = parse_entry_sets(&set[..ENTRY_SIZE]);
+        assert!(items.is_empty());
+        // Garbage of the right length.
+        let items = parse_entry_sets(&[0xC1u8; 96]);
+        assert!(items.is_empty());
     }
 
     #[test]

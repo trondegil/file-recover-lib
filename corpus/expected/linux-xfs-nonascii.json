@@ -1,0 +1,59 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 0
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496922,
+      "path": "Bilder/Größe & Übung.bmp",
+      "sha256": "5071cb1305fb6d77e2b856393dc7acccb6e6ad9016b71fd0d31cffa9ae87bf1d",
+      "size": 51209
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496800,
+      "path": "Bilder/Ålesund sommer 2024 – ferie.jpg",
+      "sha256": "84e4ec6ef1a37c3cb9ac806619369e8552b2928ea5150864bb232764af58c34c",
+      "size": 245395
+    },
+    {
+      "carvable": false,
+      "expect": "intact",
+      "mtime": 1710497288,
+      "path": "café résumé.txt",
+      "sha256": "10912aee9303ee668f0b5b19c198c7b54b713ac260b016462a494e23fddbf7cf",
+      "size": 134951
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497166,
+      "path": "Ελλάδα/Αθήνα.wav",
+      "sha256": "3d86c2bd77ae967606053492d7f49234b2eeab6edff907a1e4f2fc47b3af510e",
+      "size": 75583
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497044,
+      "path": "写真/東京タワー.pdf",
+      "sha256": "74881f2e6bb131082d05798ea9ad2ac2356125af38a2ca8d07015c3fb921e68b",
+      "size": 356041
+    }
+  ],
+  "filesystem": "xfs",
+  "image": {
+    "file": "linux-xfs-nonascii.img",
+    "sha256": "0f28e71defa79273d078f2489591a7097c0aa603918e445872a6f9a4fadf4328",
+    "size": 536870912
+  },
+  "live_files": 5,
+  "name": "linux-xfs-nonascii",
+  "platform": "linux",
+  "scenario": "nonascii",
+  "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+}

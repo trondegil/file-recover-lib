@@ -4,7 +4,11 @@
 //! NAS appliances (it is the RHEL/CentOS default). Modern XFS (v5) zeroes an
 //! inode's data-extent list when a file is unlinked, so there is no stale
 //! mapping left to scavenge — metadata-based undelete is not tractable the way
-//! it is for FAT/exFAT/NTFS/ext/HFS+. This module therefore *recognises* an XFS
+//! it is for FAT/exFAT/NTFS/ext/HFS+. The real-image corpus confirmed this on a
+//! Linux 7.0 kernel: every freed inode had its mode, size, extent count, and
+//! extent area zeroed. The names survive as unused entries in the directory
+//! blocks; the data map would have to come from the XFS log, which is a parser
+//! of its own and is left for later. This module therefore *recognises* an XFS
 //! volume and reports its size and **label** (so `info` / `list_volumes` surface
 //! it and the user knows to fall back to `scan`), but recovers nothing itself.
 //!

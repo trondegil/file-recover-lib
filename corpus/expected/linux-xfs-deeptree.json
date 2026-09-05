@@ -1,0 +1,59 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 0
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496800,
+      "path": "file-01-0.jpg",
+      "sha256": "0a0d17962792c4f311c793c9af6073f0f564bfb38d2d423b66e5be9159a4ffd9",
+      "size": 21951
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497349,
+      "path": "projects/2024/q1/file-10-0.bmp",
+      "sha256": "3a40611433d1c3ca3357b41ddac006fb78f74b035b2547a1035453213c32af7e",
+      "size": 150695
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497410,
+      "path": "projects/2024/q1/file-11-1.pdf",
+      "sha256": "c0622932dd535f8944f7b4753d5af767d34ba386d3d9cd2688802eab8649166a",
+      "size": 274035
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497471,
+      "path": "projects/2024/q1/file-12-2.wav",
+      "sha256": "e3b0b420b109cced3ad8893cc20f2d0cb75208839ee81342b78391c2fb8fdffe",
+      "size": 413989
+    },
+    {
+      "carvable": false,
+      "expect": "intact",
+      "mtime": 1710498020,
+      "path": "projects/archive/old/file-21-2.bin",
+      "sha256": "79ae15f8c1dd60aabd118f71cf268f965521901c2d47854be15bbeec32249eea",
+      "size": 247455
+    }
+  ],
+  "filesystem": "xfs",
+  "image": {
+    "file": "linux-xfs-deeptree.img",
+    "sha256": "4c29b172c0f8259bc83e8248d07fd5f65a7db011f7a648d12ed03dce61260633",
+    "size": 536870912
+  },
+  "live_files": 16,
+  "name": "linux-xfs-deeptree",
+  "platform": "linux",
+  "scenario": "deeptree",
+  "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
+}

@@ -137,6 +137,67 @@ fn is_windows_reserved(name: &str) -> bool {
             && stem.as_bytes()[3] != b'0')
 }
 
+/// Walks the free clusters a deleted file can occupy, for FAT and exFAT: from
+/// its start cluster onward, skipping clusters the allocation map shows in
+/// use by live files, and wrapping once to the first free cluster when the
+/// end of the volume is reached (allocators hand out clusters from a moving
+/// pointer that wraps). Never revisits a cluster: after the wrap it stops
+/// before the start cluster.
+pub struct FreeWalk<F: Fn(u32) -> bool> {
+    is_free: F,
+    /// Highest valid cluster number.
+    max: u32,
+    start: u32,
+    wrapped: bool,
+}
+
+impl<F: Fn(u32) -> bool> FreeWalk<F> {
+    /// `is_free(cluster)` answers from the FAT or bitmap. When no map is
+    /// available, pass a function that always returns true: the walk is then
+    /// a plain contiguous read that does not wrap.
+    pub fn new(start: u32, max: u32, is_free: F) -> Self {
+        FreeWalk {
+            is_free,
+            max,
+            start,
+            wrapped: false,
+        }
+    }
+
+    /// The next candidate cluster after `after`, or `None` when the volume
+    /// (and the one permitted wrap) is exhausted.
+    pub fn next_after(&mut self, after: u32, can_wrap: bool) -> Option<u32> {
+        let mut c = after.checked_add(1)?;
+        loop {
+            let stop = if self.wrapped {
+                self.start
+            } else {
+                self.max + 1
+            };
+            while c < stop && !(self.is_free)(c) {
+                c += 1;
+            }
+            if c < stop {
+                return Some(c);
+            }
+            if self.wrapped || !can_wrap {
+                return None;
+            }
+            self.wrapped = true;
+            c = 2;
+        }
+    }
+}
+
+/// Whether a recovered path names a JPEG, so its clusters can be checked
+/// against JPEG structure while reassembling it.
+pub fn looks_like_jpeg_name(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"))
+        .unwrap_or(false)
+}
+
 /// Keep a recovered relative path inside the output directory whatever its
 /// components say: only normal components survive, so `..`, a root, or a
 /// drive prefix can never lead outside. The per-component sanitizers already
@@ -804,7 +865,7 @@ const CAP_HFSPLUS: Capability = cap(
 const CAP_APFS: Capability = cap("APFS", Yes, Yes, No, No, "copy-on-write; use scan");
 const CAP_BTRFS: Capability = cap("Btrfs", Yes, Yes, No, No, "copy-on-write; use scan");
 const CAP_REFS: Capability = cap("ReFS", Yes, Yes, No, No, "use scan");
-const CAP_XFS: Capability = cap("XFS", Yes, Yes, No, No, "use scan");
+const CAP_XFS: Capability = cap("XFS", Yes, Yes, No, No, "a current kernel zeroes a freed inode entirely (corpus-verified), so only the log could give the data map; use scan");
 const CAP_F2FS: Capability = cap("F2FS", Yes, Yes, No, No, "use scan");
 const CAP_REISERFS: Capability = cap("ReiserFS", Yes, Yes, No, No, "use scan");
 const CAP_JFS: Capability = cap("JFS", Yes, Yes, No, No, "use scan");
@@ -1539,6 +1600,24 @@ mod tests {
             yes,
             ["FAT12/16/32", "exFAT", "NTFS", "ext2/3/4", "HFS+/HFSX"]
         );
+    }
+
+    #[test]
+    fn free_walk_skips_allocated_and_wraps_once() {
+        // Clusters 2..=9; 4 and 5 allocated; start at 7.
+        let allocated = [4u32, 5];
+        let mut w = super::FreeWalk::new(7, 9, |c| !allocated.contains(&c));
+        assert_eq!(w.next_after(7, true), Some(8));
+        assert_eq!(w.next_after(8, true), Some(9));
+        // End of volume: wrap to the first free cluster, 2.
+        assert_eq!(w.next_after(9, true), Some(2));
+        assert_eq!(w.next_after(2, true), Some(3));
+        // 4 and 5 are allocated, 6 is free, then the start cluster stops it.
+        assert_eq!(w.next_after(3, true), Some(6));
+        assert_eq!(w.next_after(6, true), None);
+        // Without permission to wrap, the volume end is the end.
+        let mut w = super::FreeWalk::new(7, 9, |_| true);
+        assert_eq!(w.next_after(9, false), None);
     }
 
     #[test]

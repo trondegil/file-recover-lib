@@ -297,9 +297,20 @@ second approach: the misses are files whose next free cluster belonged to
 a neighbour deleted *after* them (or to their own deleted AppleDouble
 companion on macOS), which no allocation map can attribute, so only
 format-aware validation of each candidate cluster (JPEG first) can settle
-them. Item 2 has begun: fragmented-file and Windows-behaviour integration
-tests for both, and a first unit-test module in exFAT. Items 3 to 6 are
-untouched.
+them. The JPEG half of that second approach is in: while reassembling a
+`.jpg`, each candidate cluster is checked against JPEG structure (marker
+segments, then the entropy-coded rule that `FF` may only precede `00`, a
+restart marker, `D9`, or a legal segment marker), and a cluster that fails
+is stepped over. It rejects foreign data that carries `FF` bytes; it cannot
+reject zero-filled remnants, which is what the corpus's remaining misses
+are, so the corpus numbers did not move. PDF and PNG have no cheap
+per-cluster test. Item 2: fragmented-file, decoy, and Windows-behaviour
+integration tests, plus unit tests for FAT and exFAT directory parsing.
+Item 3: XFS images were added to the corpus and settle the question the
+wrong way: a current kernel zeroes a freed inode entirely, so there is no
+inode-table undelete to build; names survive in directory blocks and the
+data map would have to come from the XFS log, a parser of its own. UFS and
+JFS were not examined. Items 4 to 6 are untouched.
 
 ## Step 6. Build the end-user application
 

@@ -20,7 +20,7 @@ if [ "$(uname -s)" != "Linux" ] || [ -n "${CORPUS_DOCKER:-}" ]; then
         rust:1-bookworm bash -c '
             set -e
             apt-get update -qq >/dev/null
-            apt-get install -y -qq e2fsprogs dosfstools exfatprogs ntfs-3g >/dev/null
+            apt-get install -y -qq e2fsprogs dosfstools exfatprogs ntfs-3g xfsprogs >/dev/null
             exec bash corpus/recipes/linux.sh'
 fi
 
@@ -36,6 +36,7 @@ fs_format() {
         fat32) mkfs.fat -F 32 -n CORPUS "$img" >/dev/null; opts="utf8=1" ;;
         exfat) mkfs.exfat -L CORPUS "$img" >/dev/null ;;
         ntfs)  mkfs.ntfs -F -Q -L CORPUS "$img" >/dev/null 2>&1 ;;
+        xfs)   mkfs.xfs -q -L CORPUS "$img" ;;
         *) echo "unknown fs $fs" >&2; return 1 ;;
     esac
     MNT="$WORK/mnt-$$"
@@ -59,15 +60,21 @@ fs_release() {
     MNT=""
 }
 
-for fs in ext4 fat32 exfat ntfs; do
+for fs in ext4 fat32 exfat ntfs xfs; do
     case "$fs" in
         ext4)  desc="Linux $KERNEL $(mkfs.ext4 -V 2>&1 | sed -n 1p || true)" ;;
         fat32) desc="Linux $KERNEL $(mkfs.fat 2>&1 | sed -n 1p || true)" ;;
         exfat) desc="Linux $KERNEL $(mkfs.exfat -V 2>&1 | sed -n 1p || true)" ;;
         ntfs)  desc="Linux $KERNEL mkfs.ntfs (ntfs-3g; stopgap for Windows format)" ;;
+        xfs)   desc="Linux $KERNEL $(mkfs.xfs -V 2>&1 | sed -n 1p || true)" ;;
     esac
+    # XFS refuses anything under 300 MB; everything else keeps the 64 MiB
+    # floor macOS imposes on FAT32.
+    saved_size="$VOLUME_SIZE"
+    [ "$fs" = xfs ] && VOLUME_SIZE=$((512 * 1024 * 1024))
     for scenario in $(all_scenarios); do
         build_one "linux-$fs-$scenario" "$fs" "$scenario" "$desc"
     done
+    VOLUME_SIZE="$saved_size"
 done
 write_lock
