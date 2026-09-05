@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 0.8
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "Bilder/Größe & Übung.bmp",
+      "sha256": "5071cb1305fb6d77e2b856393dc7acccb6e6ad9016b71fd0d31cffa9ae87bf1d",
+      "size": 51209
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "Bilder/Ålesund sommer 2024 – ferie.jpg",
+      "sha256": "84e4ec6ef1a37c3cb9ac806619369e8552b2928ea5150864bb232764af58c34c",
+      "size": 245395
+    },
+    {
+      "carvable": false,
+      "expect": "intact",
+      "path": "café résumé.txt",
+      "sha256": "10912aee9303ee668f0b5b19c198c7b54b713ac260b016462a494e23fddbf7cf",
+      "size": 134951
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "Ελλάδα/Αθήνα.wav",
+      "sha256": "3d86c2bd77ae967606053492d7f49234b2eeab6edff907a1e4f2fc47b3af510e",
+      "size": 75583
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "写真/東京タワー.pdf",
+      "sha256": "74881f2e6bb131082d05798ea9ad2ac2356125af38a2ca8d07015c3fb921e68b",
+      "size": 356041
+    }
+  ],
+  "filesystem": "hfsplus",
+  "image": {
+    "file": "macos-hfsplus-nonascii.img",
+    "sha256": "1e9d422694c33994d72c7ad51ef567e7ff17d268119af2babcee4953f43ea607",
+    "size": 67108864
+  },
+  "live_files": 5,
+  "name": "macos-hfsplus-nonascii",
+  "platform": "macos",
+  "scenario": "nonascii",
+  "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
+}

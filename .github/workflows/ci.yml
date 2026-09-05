@@ -32,3 +32,30 @@ jobs:
       # rotting.
       - name: Clippy with dhat-heap feature
         run: cargo clippy --features dhat-heap --example heap_profile -- -D warnings
+
+  # Real-image corpus (corpus/README.md): undelete and scan every image built by
+  # a real OS and fail if recall on any of them drops below its baseline. The
+  # images come from a release tarball pinned in corpus/corpus.lock and are
+  # cached on that file's hash. Until a tarball is published the test skips.
+  corpus:
+    name: real-image corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore corpus images
+        uses: actions/cache@v4
+        with:
+          path: corpus/images
+          key: corpus-${{ hashFiles('corpus/corpus.lock') }}
+
+      - name: Run corpus test
+        run: |
+          if grep -q '"url": "https://' corpus/corpus.lock; then
+            export UNEARTH_CORPUS_REQUIRED=1
+          else
+            echo "::warning::corpus tarball not published yet (corpus/publish.sh); the corpus test will skip"
+          fi
+          cargo test --release --test corpus_test -- --ignored --nocapture

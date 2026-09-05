@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-lo-0.jpg",
+      "sha256": "2c6bd950305821f6bb586985e92c25211c4d20db8cf7dd5562573eabca1ace62",
+      "size": 371509
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going--2.bmp",
+      "sha256": "46bf8f87e36cf5c07dd0999587d1f4d96209adc910594b79137126a2e07dac9a",
+      "size": 200323
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-n-4.wav",
+      "sha256": "9ec834485b1f528c0139e7dc961cb8186fd623b44608b5e43ad503ebd4d2e73c",
+      "size": 160465
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-2-a-very-long-file-name-that--8.pdf",
+      "sha256": "0f9f3812d21388f246764ee8ad776231e347cdddb0080c59d068a3024076b6e8",
+      "size": 135633
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-6.png",
+      "sha256": "7d1345425796dccd733264eddf4db6e576e674ba133d62d4df32f89e5a8ced7b",
+      "size": 291921
+    }
+  ],
+  "filesystem": "ntfs",
+  "image": {
+    "file": "linux-ntfs-longnames.img",
+    "sha256": "e3c14c569f0d3e1a4d0612a881aadca2992ec1e1a25a93972c751d9275ebbfaa",
+    "size": 67108864
+  },
+  "live_files": 5,
+  "name": "linux-ntfs-longnames",
+  "platform": "linux",
+  "scenario": "longnames",
+  "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
+}
