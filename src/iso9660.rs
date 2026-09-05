@@ -677,27 +677,7 @@ fn sanitize_component(name: &str) -> String {
 
 /// Build a non-colliding output path by appending a counter if needed.
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
-    let candidate = out_dir.join(rel);
-    if !candidate.exists() {
-        return candidate;
-    }
-    let stem = rel
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file".to_string());
-    let ext = rel.extension().map(|e| e.to_string_lossy().to_string());
-    let parent = rel.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    for i in 1.. {
-        let name = match &ext {
-            Some(e) => format!("{stem}_{i}.{e}"),
-            None => format!("{stem}_{i}"),
-        };
-        let candidate = out_dir.join(&parent).join(name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    unreachable!()
+    crate::recover::unique_path(out_dir, rel)
 }
 
 #[cfg(test)]

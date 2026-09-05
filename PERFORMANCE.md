@@ -134,6 +134,52 @@ Workload: carve (as above) plus an ext4 volume with a 2 MiB deleted file.
 The byte saving is one avoided copy of the file; the bigger win is eliminating
 the per-block allocation traffic, which is what drives the ~3.5× speedup.
 
+## Large and damaged sources (roadmap step 3)
+
+Measured in September 2026 on an M-series MacBook with a release build.
+
+### A 2 TB source
+
+A sparse 2 TiB image (APFS holes, so reads of empty space run at memory
+speed) with 48 real files scattered from the first gigabyte to the last,
+scanned with `scan --type jpg,png,pdf,bmp,wav --checkpoint`:
+
+| | Before | After zero-run skipping |
+|---|---|---|
+| Throughput over empty space | 775 MB/s (252 GB in 326 s, CPU-bound) | 4.3 GB/s (2 TiB in 515 s) |
+| Peak resident memory | 9.8 MB | 14 MB |
+| Files recovered | | 48 of 48, all hashes exact |
+
+The per-byte magic scan, not the disk, was the limit before: every zero byte
+still went through the index. A 64-byte block of zeros cannot start any
+magic except in its last few bytes (the most leading zeros any active
+magic has, two for `.ico`), so the scan now jumps over such blocks. Memory
+stays flat for the whole run: the scanner holds one chunk plus the
+dedup set, nothing proportional to the source.
+
+Progress is accurate (the checkpoint's `pos` advances linearly through the
+source). Killed with SIGTERM after 120 s (at 510 GB, 12 files written), the
+same command with `--resume` picked up from the checkpoint, took 397 s for
+the remaining 1.5 TiB, and ended with the identical 48 files and hashes an
+uninterrupted run produces.
+
+### Bad media
+
+`corpus/badmedia.sh` builds a 64 MiB FAT32 volume in a privileged Linux
+container, maps it through device-mapper with three ranges replaced by the
+`error` target (sectors 2048–2063, 40000–40031, and the last eight), and
+images it with `unearth image --map --retry-bad 2`. The result:
+
+- every readable sector is copied byte-for-byte and every unreadable one
+  is zero-filled;
+- the map records exactly the three injected ranges, byte-accurate;
+- the command exits non-zero, on purpose, so an incomplete image is never
+  mistaken for a clean one.
+
+`dm-flakey` is not available in Docker's kernel, so intermittent failures
+(a sector that reads on the second try) are not yet exercised; `dm-error`
+covers the hard-failure case the imager's retry logic is written for.
+
 ## Tips
 
 - Profile in the `profiling` profile (release optimizations + line info) so the

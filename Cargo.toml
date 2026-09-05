@@ -45,7 +45,7 @@ path = "src/lib.rs"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 anyhow = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 # Optional heap profiler (dotMemory-style allocation reports). Enable with
 # `--features dhat-heap` when running the `heap_profile` example.
 dhat = { version = "0.3", optional = true }

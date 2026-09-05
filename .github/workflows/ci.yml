@@ -20,9 +20,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Install rustfmt and clippy
         run: rustup component add rustfmt clippy
@@ -42,6 +42,21 @@ jobs:
       - name: Clippy with dhat-heap feature
         run: cargo clippy --features dhat-heap --example heap_profile -- -D warnings
 
+  # Dependency policy: fail on any advisory against a dependency, and keep
+  # the release binary's dependency count small (the audit reports it).
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit
+        run: cargo audit --deny warnings
+      - name: Report the release dependency tree
+        run: cargo tree --edges normal --prefix depth | sed -n '1,40p'
+
   # Real-image corpus (corpus/README.md): undelete and scan every image built by
   # a real OS and fail if recall on any of them drops below its baseline. The
   # images come from a release tarball pinned in corpus/corpus.lock and are
@@ -54,12 +69,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Restore corpus images
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: corpus/images
           key: corpus-${{ hashFiles('corpus/corpus.lock') }}

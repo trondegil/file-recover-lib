@@ -200,14 +200,11 @@
 
 /// How to determine the length of a carved file once its header is found.
 #[derive(Clone, Copy, Debug)]
-pub enum Extent {
+pub enum Extent<'a> {
     /// Search forward for `marker`; the file ends at the end of the marker,
     /// plus up to `trailing` CR/LF bytes for a format whose marker is
     /// conventionally followed by a line ending (PDF's `%%EOF`).
-    Footer {
-        marker: &'static [u8],
-        trailing: u64,
-    },
+    Footer { marker: &'a [u8], trailing: u64 },
     /// The total file size is stored as a little-endian u32 at `offset` bytes
     /// into the file (relative to the file start).
     HeaderSizeLe32 { offset: usize },
@@ -1045,13 +1042,13 @@ pub enum Extent {
 
 /// A recoverable file type.
 #[derive(Clone, Copy, Debug)]
-pub struct Signature {
+pub struct Signature<'a> {
     /// Human-readable name, e.g. `"JPEG image"`.
-    pub name: &'static str,
+    pub name: &'a str,
     /// Output file extension (without the dot), e.g. `"jpg"`.
-    pub ext: &'static str,
+    pub ext: &'a str,
     /// Magic bytes that identify the type.
-    pub magic: &'static [u8],
+    pub magic: &'a [u8],
     /// Where the magic appears relative to the start of the file. This is `0`
     /// for most formats but `4` for MP4/HEIC where the `ftyp` marker follows a
     /// 4-byte box-size field.
@@ -1059,9 +1056,9 @@ pub struct Signature {
     /// Optional secondary tag to disambiguate formats that share a magic, given
     /// as `(offset_from_magic, bytes)`. Used to tell RIFF (WAV/AVI/WEBP) and
     /// ISO-BMFF brands (HEIC vs MP4) apart.
-    pub secondary: Option<(usize, &'static [u8])>,
+    pub secondary: Option<(usize, &'a [u8])>,
     /// Strategy used to compute the file length.
-    pub extent: Extent,
+    pub extent: Extent<'a>,
     /// Hard cap on carved size; protects against runaway files when an end
     /// marker is missing or corrupt.
     pub max_size: u64,
@@ -1090,7 +1087,7 @@ pub(crate) fn gameboy_logo() -> [u8; 48] {
 /// Order matters where magics overlap: more specific entries (with a
 /// `secondary` tag) must precede the generic fallback for the same magic, so
 /// HEIC is matched before the generic MP4 `ftyp` entry.
-pub static SIGNATURES: &[Signature] = &[
+pub static SIGNATURES: &[Signature<'static>] = &[
     Signature {
         name: "JPEG image",
         ext: "jpg",
@@ -3011,10 +3008,14 @@ pub static SIGNATURES: &[Signature] = &[
 /// byte of their magic *as it appears on disk*. The on-disk first byte is the
 /// first byte of `magic` (because `magic_offset` shifts the file start
 /// backward, not the magic position).
-pub struct SignatureIndex {
+pub struct SignatureIndex<'a> {
     /// For each possible leading byte, the signatures whose magic starts with
     /// it. Most slots are empty, keeping per-byte work tiny.
-    by_first_byte: [Vec<&'static Signature>; 256],
+    by_first_byte: [Vec<&'a Signature<'a>>; 256],
+    /// The most leading zero bytes any active magic has, or `None` when some
+    /// magic is entirely zeros. Lets the scan skip runs of zero bytes: inside
+    /// a block of `B` zeros no magic can start before the last `max` bytes.
+    max_leading_zeros: Option<usize>,
     /// A 65536-bit set (one bit per two-byte magic prefix) that gates the hot
     /// scan loop: for a byte position whose first two bytes are not the prefix
     /// of any magic, one bitset lookup rejects it without walking a `by_first_byte`
@@ -3028,17 +3029,28 @@ pub struct SignatureIndex {
     pub max_lookahead: usize,
 }
 
-impl SignatureIndex {
-    pub fn build(active: &[&'static Signature]) -> Self {
+impl<'a> SignatureIndex<'a> {
+    pub fn build(active: &[&'a Signature<'a>]) -> Self {
         // `Vec` is not `Copy`, so build the array element by element.
-        let by_first_byte: [Vec<&'static Signature>; 256] = std::array::from_fn(|_| Vec::new());
+        let by_first_byte: [Vec<&'a Signature<'a>>; 256] = std::array::from_fn(|_| Vec::new());
         // 65536 bits = 1024 u64 words = 8 KiB, small enough to stay L1-resident.
         let mut prefix_bits = vec![0u64; 1024];
         let mut mark = |p: usize| prefix_bits[p >> 6] |= 1u64 << (p & 63);
+        // The most leading zero bytes in any magic; `None` if some magic is
+        // all zeros (then a zero run could hold a match anywhere).
+        let max_leading_zeros = active
+            .iter()
+            .map(|sig| {
+                let lz = sig.magic.iter().take_while(|&&b| b == 0).count();
+                (lz < sig.magic.len()).then_some(lz)
+            })
+            .collect::<Option<Vec<usize>>>()
+            .map(|v| v.into_iter().max().unwrap_or(0));
         let mut idx = SignatureIndex {
             by_first_byte,
             prefix_bits: Box::new([]),
             max_lookahead: 0,
+            max_leading_zeros,
         };
         for sig in active {
             let first = sig.magic[0] as usize;
@@ -3064,7 +3076,17 @@ impl SignatureIndex {
     /// Return the signature whose magic (and secondary tag, if any) matches the
     /// bytes starting at `window`. `window` must begin at the on-disk position
     /// of a candidate magic.
-    pub fn match_at(&self, window: &[u8]) -> Option<&'static Signature> {
+    /// How far the scan may jump when it sees a block of `block` zero bytes
+    /// at the current position: no active magic can start in the first
+    /// `block - max_leading_zeros` of them. `None` when some magic is all
+    /// zeros, in which case nothing can be skipped.
+    pub fn zero_skip(&self, block: usize) -> Option<usize> {
+        self.max_leading_zeros
+            .filter(|&lz| lz < block)
+            .map(|lz| block - lz)
+    }
+
+    pub fn match_at(&self, window: &[u8]) -> Option<&'a Signature<'a>> {
         let &first = window.first()?;
         // Fast reject: if the two-byte prefix at this position isn't the start of
         // any magic, there is nothing to compare. (Windows shorter than two bytes
@@ -3094,7 +3116,7 @@ impl SignatureIndex {
 /// Resolve user-requested type names (extensions or `"all"`) to signatures.
 ///
 /// Returns an error listing the offending name if one is unknown.
-pub fn select(types: &[String]) -> anyhow::Result<Vec<&'static Signature>> {
+pub fn select(types: &[String]) -> anyhow::Result<Vec<&'static Signature<'static>>> {
     if types.is_empty() || types.iter().any(|t| t.eq_ignore_ascii_case("all")) {
         // "all" means every *file* type. Filesystem images are opt-in (see
         // `Category::Volume`); the real-image corpus showed a default scan of an
@@ -3113,7 +3135,7 @@ pub fn select(types: &[String]) -> anyhow::Result<Vec<&'static Signature>> {
             selected.extend(SIGNATURES.iter().filter(|s| category_of(s.ext) == cat));
             continue;
         }
-        let matches: Vec<&'static Signature> = SIGNATURES
+        let matches: Vec<&'static Signature<'static>> = SIGNATURES
             .iter()
             .filter(|s| s.ext.eq_ignore_ascii_case(t))
             .collect();
@@ -3132,7 +3154,7 @@ pub fn select(types: &[String]) -> anyhow::Result<Vec<&'static Signature>> {
     Ok(selected)
 }
 
-impl Signature {
+impl Signature<'_> {
     /// Whether this signature describes a whole filesystem or partition image
     /// rather than a file. Such a match never hides the files inside it from
     /// the carver, and is only carved when asked for by name or category.
@@ -3346,7 +3368,7 @@ pub fn has_signature(ext: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn index() -> SignatureIndex {
+    fn index() -> SignatureIndex<'static> {
         let all = select(&[]).unwrap();
         SignatureIndex::build(&all)
     }

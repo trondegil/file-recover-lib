@@ -188,6 +188,20 @@ Done when. A week of fuzzing finds nothing new, the 2 TB run is measured and
 recorded in PERFORMANCE.md, and imaging a flaky device produces a map file
 that matches the errors injected.
 
+Status (September 2026). Items 2 through 7 are in place: the JSON parser
+refuses nesting past 128 levels; custom carver specs are borrowed for one
+scan instead of leaked; every recovered path passes a write barrier;
+`cargo audit` runs in CI (two advisories cleared by dependency updates)
+and every action is pinned to a commit; the 2 TB run is measured in
+PERFORMANCE.md (and made 5.5 times faster on empty space by skipping zero
+runs); and `corpus/badmedia.sh` images a device-mapper `error` device and
+checks the map against the injected ranges. Item 1 is set up (six
+cargo-fuzz targets, a nightly workflow, and a regression harness that
+replays kept crashers) and found two crashes in its first minute, both
+fixed. Its "a week of fuzzing finds nothing new" criterion is a matter of
+letting the nightly job run; `dm-flakey` is not available in Docker, so
+intermittent (as opposed to hard) read failures are not yet exercised.
+
 ## Step 4. Say exactly what the tool can do
 
 Goal. A user can tell, before running anything, whether their situation is

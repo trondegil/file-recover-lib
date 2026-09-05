@@ -24,11 +24,11 @@
 //! plausibly-sized carve — it can never over-read the source or emit a length
 //! past the cap.
 //!
-//! Specs are parsed into an owned [`Spec`] (no allocation leaked on the error
-//! path), then [`Spec::into_signature`] leaks exactly one [`Signature`] with
-//! `'static` lifetime so it slots into the existing carve path unchanged. The
-//! leak is intentional: a custom carver lives for the rest of the process, like
-//! the built-in table.
+//! Specs are parsed into an owned [`Spec`], and [`Spec::to_signature`] lends a
+//! [`Signature`] that borrows from it for the duration of one scan. Nothing is
+//! leaked: an earlier version gave every custom carver a `'static` lifetime by
+//! leaking it, so a long-running agent session that started many scans grew
+//! without bound.
 
 use crate::json::Json;
 use crate::signatures::{Extent, Signature};
@@ -116,9 +116,12 @@ impl Spec {
 
     /// Materialise the spec as a `'static` [`Signature`] for the carve path,
     /// leaking its owned buffers so they live for the rest of the process.
-    pub fn into_signature(self) -> &'static Signature {
-        let extent = match self.length {
-            Length::Fixed(size) => Extent::Fixed { size },
+    /// Build the carver signature for this spec, borrowing its buffers. The
+    /// spec must outlive the scan that uses the signature, and nothing is
+    /// leaked: when the scan's job drops its specs, the carver goes with them.
+    pub fn to_signature(&self) -> Signature<'_> {
+        let extent = match &self.length {
+            Length::Fixed(size) => Extent::Fixed { size: *size },
             Length::SizeField {
                 offset,
                 width,
@@ -126,41 +129,41 @@ impl Spec {
                 mul,
                 add,
             } => Extent::SizeField {
-                offset,
-                width,
-                big_endian,
-                mul,
-                add,
+                offset: *offset,
+                width: *width,
+                big_endian: *big_endian,
+                mul: *mul,
+                add: *add,
             },
             Length::Footer { marker, trailing } => Extent::Footer {
-                marker: Box::leak(marker.into_boxed_slice()),
-                trailing,
+                marker,
+                trailing: *trailing,
             },
         };
-        let secondary = self
-            .secondary
-            .map(|(off, bytes)| (off, &*Box::leak(bytes.into_boxed_slice())));
-        Box::leak(Box::new(Signature {
-            name: Box::leak(self.name.into_boxed_str()),
-            ext: Box::leak(self.ext.into_boxed_str()),
-            magic: Box::leak(self.magic.into_boxed_slice()),
+        Signature {
+            name: &self.name,
+            ext: &self.ext,
+            magic: &self.magic,
             magic_offset: self.magic_offset,
-            secondary,
+            secondary: self
+                .secondary
+                .as_ref()
+                .map(|(off, bytes)| (*off, bytes.as_slice())),
             extent,
             max_size: self.max_size,
-        }))
+        }
     }
 }
 
-/// Parse an array of custom-carver specs (as passed to the MCP `scan` tool) into
-/// `'static` signatures ready to append to the active set. Returns a descriptive
-/// error identifying the offending entry.
-pub fn from_json(value: &Json) -> Result<Vec<&'static Signature>, String> {
+/// Parse an array of custom-carver specs (as passed to the MCP `scan` tool).
+/// Each becomes a signature with [`Spec::to_signature`] for as long as the
+/// spec lives. Returns a descriptive error identifying the offending entry.
+pub fn from_json(value: &Json) -> Result<Vec<Spec>, String> {
     let arr = value.as_array().ok_or("custom_carvers must be an array")?;
     let mut out = Vec::with_capacity(arr.len());
     for (i, item) in arr.iter().enumerate() {
         let spec = Spec::parse(item).map_err(|e| format!("custom_carvers[{i}]: {e}"))?;
-        out.push(spec.into_signature());
+        out.push(spec);
     }
     Ok(out)
 }
@@ -418,13 +421,13 @@ mod tests {
     }
 
     #[test]
-    fn into_signature_carries_fields_through() {
-        let sig = spec(
+    fn to_signature_carries_fields_through() {
+        let owned = spec(
             r#"{"name":"Widget","ext":"wdg","magic":"57 44 47 31","max_size":4096,
                 "length":{"strategy":"fixed","size":512}}"#,
         )
-        .unwrap()
-        .into_signature();
+        .unwrap();
+        let sig = owned.to_signature();
         assert_eq!(sig.ext, "wdg");
         assert_eq!(sig.magic, &[0x57, 0x44, 0x47, 0x31]);
         assert!(matches!(sig.extent, Extent::Fixed { size: 512 }));

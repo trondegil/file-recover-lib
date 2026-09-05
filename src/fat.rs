@@ -211,9 +211,17 @@ impl Volume {
             total_sectors_32
         };
 
-        let root_dir_sectors = (root_entry_count * 32).div_ceil(bytes_per_sector);
-        let first_data_sector = reserved_sectors + num_fats * fat_size_sectors + root_dir_sectors;
-        let first_root_dir_sector = reserved_sectors + num_fats * fat_size_sectors;
+        // Every field here comes straight off the disk; saturate so a garbage
+        // BPB fails the range check below instead of overflowing (found by
+        // fuzzing).
+        let root_dir_sectors = root_entry_count
+            .saturating_mul(32)
+            .div_ceil(bytes_per_sector);
+        let fat_region = num_fats.saturating_mul(fat_size_sectors);
+        let first_data_sector = reserved_sectors
+            .saturating_add(fat_region)
+            .saturating_add(root_dir_sectors);
+        let first_root_dir_sector = reserved_sectors.saturating_add(fat_region);
 
         if total_sectors < first_data_sector {
             bail!("invalid BPB (data region before first data sector) at offset {offset}");
@@ -851,27 +859,7 @@ fn sanitize_component(name: &str) -> String {
 
 /// Build a non-colliding output path by appending a counter if needed.
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
-    let candidate = out_dir.join(rel);
-    if !candidate.exists() {
-        return candidate;
-    }
-    let stem = rel
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file".to_string());
-    let ext = rel.extension().map(|e| e.to_string_lossy().to_string());
-    let parent = rel.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    for i in 1.. {
-        let name = match &ext {
-            Some(e) => format!("{stem}_{i}.{e}"),
-            None => format!("{stem}_{i}"),
-        };
-        let candidate = out_dir.join(&parent).join(name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    unreachable!()
+    crate::recover::unique_path(out_dir, rel)
 }
 
 #[cfg(test)]

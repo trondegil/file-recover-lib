@@ -56,9 +56,11 @@ fn recovers_a_file_via_injected_custom_carver() {
             "length":{"strategy":"size_field","offset":4,"width":32,"endian":"le"}}]"#,
     )
     .unwrap();
-    let sigs = custom::from_json(&spec).expect("valid custom carver");
-    assert_eq!(sigs.len(), 1);
-    assert_eq!(sigs[0].ext, "wdg");
+    let specs = custom::from_json(&spec).expect("valid custom carver");
+    assert_eq!(specs.len(), 1);
+    let owned: Vec<_> = specs.iter().map(|c| c.to_signature()).collect();
+    assert_eq!(owned[0].ext, "wdg");
+    let sigs: Vec<&unearth::signatures::Signature> = owned.iter().collect();
 
     let source = Source::open(&img_path).unwrap();
     let opts = CarveOptions {
