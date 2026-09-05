@@ -354,6 +354,24 @@ What to do.
 Done when. Three people who have never used the CLI recover files from a
 test USB stick on their own laptops, one per platform, without help.
 
+Status (September 2026). The app lives in its own repository,
+`trondegil/file-recovery-app`, and every line of app code stays there; this
+engine is a git dependency of it. Item 1 was decided against Tauri: the
+shell is Slint, Rust-native with no web view, one binary per platform, in
+the Cupertino widget style on macOS (Fluent on Windows, Cosmic on Linux) on
+the system palette so it follows dark mode. Items 2 to 5 and 7 are in
+place: the five screens in order; imaging pushed first and resumable;
+elevation only when a raw drive is opened, with the platform's own action
+(the Full Disk Access pane on macOS, a UAC relaunch on Windows, `pkexec` on
+Linux); a destination on the source drive refused, the system drive warned
+about, and a close mid-image turned into a cancel; the review screen shows
+the confidence grade and image previews and the restored files carry the
+CLI's manifest; and the app adds no recovery logic, only the flow. Item 6
+is half done: `cargo-packager` metadata and an `Installers` workflow build
+unsigned `.dmg`, NSIS, `.deb`, and AppImage artifacts, while signing and
+notarising wait for the Apple Developer ID and Windows code-signing
+certificates. Not done: the "three people" test.
+
 ## Step 7. Run it like a product
 
 Goal. Users can rely on releases, report problems, and know what changed.
