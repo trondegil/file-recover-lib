@@ -704,6 +704,15 @@ fn cmd_plan(args: &[String]) -> Res<()> {
                 .map_err(|e| format!("creating {}: {e}", parent.display()))?;
         }
         fs::write(&dst, &data).map_err(|e| format!("writing {}: {e}", dst.display()))?;
+        // A distinct, deterministic modification time per file, so the test
+        // can check that recovery restores it. Recipes copy with the time
+        // preserved (`cp -p`, Copy-Item), so this is what lands on the volume.
+        let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(stage_mtime(i));
+        fs::File::options()
+            .write(true)
+            .open(&dst)
+            .and_then(|f| f.set_modified(mtime))
+            .map_err(|e| format!("setting mtime on {}: {e}", dst.display()))?;
         total += data.len();
     }
     let mut text = String::new();
@@ -726,6 +735,13 @@ fn cmd_plan(args: &[String]) -> Res<()> {
         pos[2]
     );
     Ok(())
+}
+
+/// The modification time stamped on the `i`th staged file: 2024-03-15 10:00
+/// UTC plus 61 seconds per file, so every file's time is distinct, even on
+/// FAT's 2-second resolution, and far from any build or test date.
+fn stage_mtime(i: usize) -> u64 {
+    1_710_496_800 + i as u64 * 61
 }
 
 fn read_plan(path: &Path) -> Res<Vec<Op>> {
@@ -818,13 +834,21 @@ fn cmd_expect(args: &[String]) -> Res<()> {
             live += 1;
             continue;
         };
-        let (size, sha) = sha256_file(&stage.join(path))?;
+        let staged = stage.join(path);
+        let (size, sha) = sha256_file(&staged)?;
         let ext = path.rsplit('.').next().unwrap_or("");
         let carvable = Kind::from_ext(ext).map(Kind::carvable).unwrap_or(false);
+        let mtime = fs::metadata(&staged)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .ok_or_else(|| format!("reading mtime of {}", staged.display()))?;
         files.push(obj(vec![
             ("path", s(path)),
             ("size", n(size)),
             ("sha256", s(&sha)),
+            ("mtime", n(mtime)),
             ("expect", s(expect.as_str())),
             ("carvable", Json::Bool(carvable)),
         ]));

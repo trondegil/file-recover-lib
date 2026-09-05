@@ -91,12 +91,16 @@ fn read_lock() -> Lock {
 struct ExpectedFile {
     path: String,
     sha256: String,
+    /// Modification time (Unix seconds) the file had on the volume, when the
+    /// image was built with times recorded.
+    mtime: Option<u64>,
     intact: bool,
     carvable: bool,
 }
 
 struct Expected {
     doc: Json,
+    filesystem: String,
     files: Vec<ExpectedFile>,
     baseline_undelete: Option<f64>,
     baseline_scan: Option<f64>,
@@ -113,6 +117,7 @@ fn read_expected(path: &Path) -> Expected {
         .map(|f| ExpectedFile {
             path: str_field(f, "path").expect("file path"),
             sha256: str_field(f, "sha256").expect("file sha256"),
+            mtime: f.get("mtime").and_then(Json::as_u64),
             intact: str_field(f, "expect").as_deref() == Some("intact"),
             carvable: f.get("carvable").and_then(Json::as_bool).unwrap_or(false),
         })
@@ -124,6 +129,7 @@ fn read_expected(path: &Path) -> Expected {
     Expected {
         baseline_undelete: num("undelete"),
         baseline_scan: num("scan"),
+        filesystem: str_field(&doc, "filesystem").unwrap_or_default(),
         doc,
         files,
     }
@@ -145,10 +151,18 @@ fn sha256_of(path: &Path) -> String {
     hash::to_hex(&h.finalize())
 }
 
-/// Every regular file under `dir`, as (path relative to `dir`, sha256).
-fn hash_tree(dir: &Path) -> Vec<(String, String)> {
+/// A recovered file: path relative to the output directory, its SHA-256, and
+/// its modification time as Unix seconds.
+struct Recovered {
+    path: String,
+    sha256: String,
+    mtime: Option<u64>,
+}
+
+/// Every regular file under `dir`.
+fn hash_tree(dir: &Path) -> Vec<Recovered> {
     let mut out = Vec::new();
-    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<Recovered>) {
         let Ok(rd) = fs::read_dir(dir) else { return };
         for e in rd.flatten() {
             let p = e.path();
@@ -160,12 +174,38 @@ fn hash_tree(dir: &Path) -> Vec<(String, String)> {
                     .unwrap()
                     .to_string_lossy()
                     .replace('\\', "/");
-                out.push((rel, sha256_of(&p)));
+                let mtime = fs::metadata(&p)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs());
+                out.push(Recovered {
+                    path: rel,
+                    sha256: sha256_of(&p),
+                    mtime,
+                });
             }
         }
     }
     walk(dir, dir, &mut out);
     out
+}
+
+/// Whether a recovered file's modification time matches the one recorded for
+/// it. NTFS, ext4, and HFS+ store UTC, so 2 seconds of slack covers rounding.
+/// FAT and exFAT store local time with no zone, and the tool reads it as UTC,
+/// so a difference that is a whole number of quarter hours (up to 14 hours)
+/// is the building machine's zone, not a recovery error.
+fn mtime_matches(fs: &str, got: u64, want: u64) -> bool {
+    let delta = got.abs_diff(want);
+    if delta <= 2 {
+        return true;
+    }
+    if matches!(fs, "fat32" | "exfat") && delta <= 14 * 3600 {
+        let rem = delta % 900;
+        return rem <= 2 || rem >= 898;
+    }
+    false
 }
 
 // --- corpus acquisition -----------------------------------------------------------------
@@ -224,6 +264,10 @@ fn fetch_tarball(lock: &Lock, dir: &Path) -> Result<(), String> {
 struct Measurement {
     expected_intact: usize,
     undelete_hits: usize,
+    /// (files whose recorded time was checked, files whose time was right)
+    times_checked: usize,
+    times_right: usize,
+    time_failures: Vec<String>,
     undelete_maybe_hits: usize,
     undelete_name_hits: usize,
     expected_carvable: usize,
@@ -272,14 +316,15 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
     ]);
 
     let undeleted = hash_tree(&undelete_dir);
-    let undeleted_hashes: HashSet<&str> = undeleted.iter().map(|(_, h)| h.as_str()).collect();
-    let carved: HashSet<String> = hash_tree(&scan_dir).into_iter().map(|(_, h)| h).collect();
+    let undeleted_hashes: HashSet<&str> = undeleted.iter().map(|r| r.sha256.as_str()).collect();
+    let carved: HashSet<String> = hash_tree(&scan_dir).into_iter().map(|r| r.sha256).collect();
 
     // A name match is informational: FAT loses the first character of a short
     // name to the deletion marker, and the output may sit under `volume_N/`.
     let name_matches = |want: &str| {
         let want_name = want.rsplit('/').next().unwrap_or(want).to_lowercase();
-        undeleted.iter().any(|(p, _)| {
+        undeleted.iter().any(|r| {
+            let p = &r.path;
             let got = p.rsplit('/').next().unwrap_or(p).to_lowercase();
             // Compare by character: names are not ASCII.
             got == want_name
@@ -291,6 +336,9 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
     let mut m = Measurement {
         expected_intact: 0,
         undelete_hits: 0,
+        times_checked: 0,
+        times_right: 0,
+        time_failures: Vec::new(),
         undelete_maybe_hits: 0,
         undelete_name_hits: 0,
         expected_carvable: 0,
@@ -300,6 +348,25 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
     };
     for f in &expected.files {
         let hit = undeleted_hashes.contains(f.sha256.as_str());
+        // A file that came back by name must also have its time back.
+        if let (true, Some(want)) = (hit, f.mtime) {
+            let got = undeleted
+                .iter()
+                .find(|r| r.sha256 == f.sha256)
+                .and_then(|r| r.mtime);
+            m.times_checked += 1;
+            match got {
+                Some(got) if mtime_matches(&expected.filesystem, got, want) => m.times_right += 1,
+                Some(got) => m.time_failures.push(format!(
+                    "{}: mtime {got} (recorded {want}, off by {}s)",
+                    f.path,
+                    got as i64 - want as i64
+                )),
+                None => m
+                    .time_failures
+                    .push(format!("{}: mtime unreadable", f.path)),
+            }
+        }
         if f.intact {
             m.expected_intact += 1;
             m.undelete_hits += hit as usize;
@@ -413,6 +480,9 @@ fn corpus_recall() {
         let m = measure(&image, &expected, &work);
 
         let mut notes = Vec::new();
+        if m.times_checked > 0 {
+            notes.push(format!("times {}/{}", m.times_right, m.times_checked));
+        }
         if m.undelete_maybe_hits > 0 {
             notes.push(format!(
                 "+{} overwritten-but-recovered",
@@ -475,6 +545,9 @@ fn corpus_recall() {
         );
         if !status.is_empty() {
             failures.push(format!("{}: {status}", entry.name));
+        }
+        for tf in &m.time_failures {
+            failures.push(format!("{}: {tf}", entry.name));
         }
     }
     eprintln!();

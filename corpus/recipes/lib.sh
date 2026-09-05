@@ -45,14 +45,16 @@ apply_plan() {
     while IFS=$'\t' read -r op path expect; do
         case "$op" in
             copy)
+                # -p keeps the staged modification time, which the test
+                # checks the recovered file for.
                 mkdir -p "$mnt/$(dirname "$path")"
-                cp "$stage/$path" "$mnt/$path"
+                cp -p "$stage/$path" "$mnt/$path"
                 ;;
             fill)
                 # Packing the volume: a copy that fails for lack of space is
                 # expected. Drop the partial file so the volume stays consistent.
                 mkdir -p "$mnt/$(dirname "$path")"
-                if ! cp "$stage/$path" "$mnt/$path" 2>/dev/null; then
+                if ! cp -p "$stage/$path" "$mnt/$path" 2>/dev/null; then
                     rm -f "$mnt/$path"
                     fs_sync "$mnt"
                 fi

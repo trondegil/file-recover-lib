@@ -33,7 +33,9 @@ This is step 1 of [ROADMAP.md](../ROADMAP.md).
    size fields, plus text and raw binary that only undelete can name. Every
    512-byte sector of every file carries a unique stamp, so a recovery that is
    mis-ordered or mis-sized changes the hash, while the images still compress
-   well for distribution.
+   well for distribution. Each staged file also gets a distinct modification
+   time in March 2024, which the recipes preserve when copying (`cp -p`,
+   `Copy-Item`) and the test checks on the recovered file.
 2. The platform recipe creates a raw 64 MiB file, formats it with the
    platform's own tool, mounts it, and applies the plan through the ordinary
    filesystem driver: `cp` and `rm` on Unix, `Copy-Item` and `Remove-Item` on
@@ -122,7 +124,11 @@ macos-fat32-baseline                     7    7/7    100.0%   |        5    5/5 
 
 `undelete` is how many of the intact-expected deleted files came back with the
 right hash by metadata; `scan` is the same for the carvable subset by
-signature. The test fails if either drops below the image's baseline, if an
+signature. Each file recovered by name is also checked for its modification
+time: exact to 2 seconds on NTFS, ext4, and HFS+; on FAT and exFAT, which
+store local time with no zone, a whole number of quarter hours off (up to 14
+hours) is accepted, since the building machine's zone is not recorded. A
+time that is wrong beyond that fails the test outright. The test fails if either drops below the image's baseline, if an
 image's hash does not match the lock, or if a listed image is missing while
 `UNEARTH_CORPUS_REQUIRED=1`. Images that are missing without that flag are
 skipped with a notice, so the rest of the suite still runs on a machine with

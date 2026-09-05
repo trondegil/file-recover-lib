@@ -59,6 +59,8 @@ function Apply-Plan([string]$Mount, [string]$Stage, [string]$Plan) {
         $rel = if ($f.Length -gt 1) { $f[1] -replace "/", "\" } else { "" }
         switch ($f[0]) {
             "copy" {
+                # Copy-Item keeps LastWriteTime, which the test checks the
+                # recovered file for.
                 $dst = Join-Path $Mount $rel
                 Ensure-Parent $dst
                 Copy-Item -LiteralPath (Join-Path $Stage $rel) -Destination $dst
