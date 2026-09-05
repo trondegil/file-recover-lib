@@ -81,12 +81,56 @@ pub struct CarvedFile {
     pub size: u64,
     /// SHA-256 of the written bytes.
     pub sha256: [u8; 32],
+    /// How much to trust the carve.
+    pub confidence: Confidence,
+}
+
+/// How much a carved file can be trusted, so a user can tell a recovery from
+/// a guess. Reported per file in the manifest and totalled at the end of a
+/// run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Confidence {
+    /// The header passed a structural check and the length came from the
+    /// format itself (a footer, a size field, or a walk of its structure).
+    Verified,
+    /// The length came from the format, but the type has no structural
+    /// validator beyond its magic.
+    Plausible,
+    /// The length hit the type's size cap or the end of the scan: no footer or
+    /// structure marked the end, so the tail is a guess.
+    Truncated,
+}
+
+impl Confidence {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Confidence::Verified => "verified",
+            Confidence::Plausible => "plausible",
+            Confidence::Truncated => "truncated",
+        }
+    }
+}
+
+impl CarveStats {
+    fn count_confidence(&mut self, c: Confidence) {
+        match c {
+            Confidence::Verified => self.verified += 1,
+            Confidence::Plausible => self.plausible += 1,
+            Confidence::Truncated => self.truncated += 1,
+        }
+    }
 }
 
 /// Outcome of a carving run.
 #[derive(Default)]
 pub struct CarveStats {
     pub bytes_scanned: u64,
+    /// Files whose header validated and whose length the format itself gave.
+    pub verified: u64,
+    /// Files whose length the format gave but whose type has no validator.
+    pub plausible: u64,
+    /// Files cut at the size cap or the scan end, with a guessed tail.
+    pub truncated: u64,
     pub files_recovered: u64,
     pub bytes_recovered: u64,
     /// Candidates dropped because their header failed structural validation.
@@ -230,16 +274,21 @@ pub fn carve_seeded(
                                 if !opts.allow_nested && !sig.is_volume() {
                                     skip_until = file_start + len;
                                 }
-                            } else if opts.validate
-                                && !passes_validation(source, sig, file_start, len)?
-                            {
-                                stats.rejected += 1;
                             } else {
+                                let validity = validation_of(source, sig, file_start, len)?;
+                                if opts.validate && !validity.accept() {
+                                    stats.rejected += 1;
+                                    i += 1;
+                                    continue;
+                                }
+                                let confidence =
+                                    confidence_of(sig, file_start, len, scan_end, validity);
                                 write_file(
                                     source,
                                     sig,
                                     file_start,
                                     len,
+                                    confidence,
                                     opts,
                                     &mut stats,
                                     &mut copy_buf,
@@ -325,6 +374,9 @@ fn write_checkpoint(
     s.push_str(&format!("bytes {}\n", stats.bytes_recovered));
     s.push_str(&format!("rejected {}\n", stats.rejected));
     s.push_str(&format!("duplicates {}\n", stats.duplicates));
+    s.push_str(&format!("verified {}\n", stats.verified));
+    s.push_str(&format!("plausible {}\n", stats.plausible));
+    s.push_str(&format!("truncated {}\n", stats.truncated));
     if dedup {
         for h in seen {
             s.push_str(&format!("seen {}\n", crate::hash::to_hex(h)));
@@ -332,12 +384,13 @@ fn write_checkpoint(
     }
     for f in &stats.files {
         s.push_str(&format!(
-            "file {} {} {} {} {}\n",
+            "file {} {} {} {} {} {}\n",
             f.ext,
             f.offset,
             f.size,
             crate::hash::to_hex(&f.sha256),
-            f.name
+            f.name,
+            f.confidence.as_str()
         ));
     }
 
@@ -380,6 +433,15 @@ fn read_checkpoint(path: &std::path::Path) -> Option<LoadedCheckpoint> {
             Some("duplicates") => {
                 stats.duplicates = it.next().and_then(|v| v.parse().ok()).unwrap_or(0)
             }
+            Some("verified") => {
+                stats.verified = it.next().and_then(|v| v.parse().ok()).unwrap_or(0)
+            }
+            Some("plausible") => {
+                stats.plausible = it.next().and_then(|v| v.parse().ok()).unwrap_or(0)
+            }
+            Some("truncated") => {
+                stats.truncated = it.next().and_then(|v| v.parse().ok()).unwrap_or(0)
+            }
             Some("seen") => {
                 if let Some(h) = it.next().and_then(parse_hex32) {
                     seen.insert(h);
@@ -393,6 +455,11 @@ fn read_checkpoint(path: &std::path::Path) -> Option<LoadedCheckpoint> {
                     it.next().and_then(parse_hex32),
                     it.next(),
                 ) {
+                    let confidence = match it.next() {
+                        Some("verified") => Confidence::Verified,
+                        Some("truncated") => Confidence::Truncated,
+                        _ => Confidence::Plausible,
+                    };
                     *stats.per_type.entry(ext.to_string()).or_insert(0) += 1;
                     stats.files.push(CarvedFile {
                         name: name.to_string(),
@@ -400,6 +467,7 @@ fn read_checkpoint(path: &std::path::Path) -> Option<LoadedCheckpoint> {
                         offset,
                         size,
                         sha256: sha,
+                        confidence,
                     });
                 }
             }
@@ -6984,11 +7052,37 @@ fn mp4_length(source: &Source, file_start: u64, limit: u64) -> Result<Option<u64
 /// Read the candidate's header and ask the type's validator whether it looks
 /// like a real file. A short read (file smaller than the header window) just
 /// means the validator sees fewer bytes and tends to abstain.
-fn passes_validation(source: &Source, sig: &Signature, file_start: u64, len: u64) -> Result<bool> {
+fn validation_of(
+    source: &Source,
+    sig: &Signature,
+    file_start: u64,
+    len: u64,
+) -> Result<validate::Validity> {
     let mut hdr = [0u8; HEADER_LEN];
     let take = (len as usize).min(HEADER_LEN);
     let n = source.read_at(file_start, &mut hdr[..take])?;
-    Ok(validate::validate(sig, &hdr[..n]).accept())
+    Ok(validate::validate(sig, &hdr[..n]))
+}
+
+/// Grade a carve: a length that reached the type's cap (or the scan end) is
+/// a guess whatever the header said; otherwise the validator's verdict
+/// separates a checked header from a bare magic match.
+fn confidence_of(
+    sig: &Signature,
+    file_start: u64,
+    len: u64,
+    scan_end: u64,
+    validity: validate::Validity,
+) -> Confidence {
+    let cap = (file_start.saturating_add(sig.max_size)).min(scan_end) - file_start;
+    let fixed = matches!(sig.extent, Extent::Fixed { .. });
+    if len >= cap && !fixed {
+        Confidence::Truncated
+    } else if validity == validate::Validity::Valid {
+        Confidence::Verified
+    } else {
+        Confidence::Plausible
+    }
 }
 
 /// The extension to write a carved file under. Normally the signature's own
@@ -7029,6 +7123,7 @@ fn write_file(
     sig: &Signature,
     file_start: u64,
     len: u64,
+    confidence: Confidence,
     opts: &CarveOptions,
     stats: &mut CarveStats,
     buf: &mut Vec<u8>,
@@ -7107,6 +7202,13 @@ fn write_file(
     let written = len - remaining;
     stats.files_recovered += 1;
     stats.bytes_recovered += written;
+    // A short read at the source end is a truncation whatever the format said.
+    let confidence = if remaining > 0 {
+        Confidence::Truncated
+    } else {
+        confidence
+    };
+    stats.count_confidence(confidence);
     *stats.per_type.entry(ext.to_string()).or_insert(0) += 1;
     stats.files.push(CarvedFile {
         name,
@@ -7114,6 +7216,7 @@ fn write_file(
         offset: file_start,
         size: written,
         sha256: digest,
+        confidence,
     });
     Ok(())
 }

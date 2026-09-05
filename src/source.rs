@@ -180,6 +180,90 @@ impl Source {
     }
 }
 
+/// Whether writing into `output_dir` would write onto the device `source`
+/// is being read from. Recovering onto the drive being recovered overwrites
+/// the very data being looked for, so the commands refuse it. Best effort:
+/// `true` only when the two demonstrably coincide, so a regular image file
+/// or an undecidable case never blocks a run.
+///
+/// On Unix a block or character device's `rdev` is compared with the device
+/// number of the filesystem the output lives on (the whole-disk device is
+/// matched by major number, since its partitions carry the same major). On
+/// Windows a `\\.\D:` source is compared with the output's drive letter.
+pub fn same_device(source: &Path, output_dir: &Path) -> bool {
+    // The output directory may not exist yet; judge by its nearest existing ancestor.
+    let mut probe = output_dir.to_path_buf();
+    while !probe.exists() {
+        match probe.parent() {
+            Some(p) if !p.as_os_str().is_empty() => probe = p.to_path_buf(),
+            _ => return false,
+        }
+    }
+    same_device_impl(source, &probe)
+}
+
+#[cfg(unix)]
+fn same_device_impl(source: &Path, existing_output: &Path) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let (Ok(src), Ok(out)) = (
+        std::fs::metadata(source),
+        std::fs::metadata(existing_output),
+    ) else {
+        return false;
+    };
+    if !(src.file_type().is_block_device() || src.file_type().is_char_device()) {
+        return false;
+    }
+    let rdev = src.rdev();
+    let dev = out.dev();
+    if rdev == dev {
+        return true;
+    }
+    // Same major number: the output sits on a partition of this whole disk
+    // (Linux) or on the raw/buffered twin of the same disk (macOS).
+    fn major(d: u64) -> u64 {
+        if cfg!(target_os = "linux") {
+            ((d >> 32) & 0xffff_f000) | ((d >> 8) & 0xfff)
+        } else {
+            (d >> 24) & 0xff
+        }
+    }
+    major(rdev) == major(dev) && major(dev) != 0
+}
+
+#[cfg(windows)]
+fn same_device_impl(source: &Path, existing_output: &Path) -> bool {
+    // `\\.\D:` or `D:` names a volume; compare its letter with the output's.
+    let src = source.to_string_lossy().to_ascii_uppercase();
+    let letter = src
+        .trim_start_matches("\\\\.\\")
+        .trim_start_matches("\\\\?\\")
+        .chars()
+        .next();
+    let Some(letter) = letter.filter(|c| c.is_ascii_alphabetic()) else {
+        return false;
+    };
+    if !src.contains(':') || src.contains("PHYSICALDRIVE") {
+        // A physical drive holds every volume: without the partition map we
+        // cannot tell, so do not block.
+        return false;
+    }
+    let out = std::fs::canonicalize(existing_output)
+        .map(|p| p.to_string_lossy().to_ascii_uppercase())
+        .unwrap_or_default();
+    let out_letter = out
+        .trim_start_matches("\\\\?\\")
+        .chars()
+        .next()
+        .filter(|c| c.is_ascii_alphabetic());
+    out_letter == Some(letter) && out.chars().nth(1) == Some(':')
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_device_impl(_source: &Path, _existing_output: &Path) -> bool {
+    false
+}
+
 /// What to do about "permission denied" on this platform, in the words a
 /// user needs rather than a bare errno.
 fn permission_hint(path: &Path) -> String {
@@ -233,6 +317,23 @@ mod tests {
             size: u64::MAX,
         };
         assert_eq!(probe.probe_size().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_regular_file_is_never_the_output_device() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img = tmp.path().join("disk.img");
+        std::fs::write(&img, b"x").unwrap();
+        assert!(!same_device(&img, tmp.path()));
+        assert!(!same_device(&img, &tmp.path().join("not/yet/created")));
+        assert!(!same_device(Path::new("/no/such/device"), tmp.path()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_root_disk_is_the_output_device_for_a_dir_on_it() {
+        // /dev/null is a character device on a different major than any disk.
+        assert!(!same_device(Path::new("/dev/null"), Path::new("/")));
     }
 
     #[test]

@@ -233,6 +233,19 @@ Done when. The matrix exists, is generated from code rather than maintained
 by hand, and the corpus test in Step 1 checks that every "yes" cell has at
 least one passing real image behind it.
 
+Status (September 2026). Done. The matrix is a table in `recover.rs` that
+every `Volume` variant must map to (a new filesystem does not compile
+without a row); `unearth info --features` prints it as text, Markdown, or
+JSON; the README carries the Markdown copy between markers and a test
+fails if it drifts; the corpus test fails if any "yes" under undelete has no
+image with a recorded undelete baseline. `undelete` on a detect-only source
+names the filesystem, points at `scan`, and exits non-zero. Every carved
+file is graded `verified`, `plausible`, or `truncated` in the manifests, the
+MCP result, and the end-of-run summary. The README opens with the
+four-step guide, and the four writing commands refuse an output directory
+on the device being read when they can tell (a device source whose
+filesystem holds the output).
+
 ## Step 5. Extend recovery where it pays off
 
 Goal. Raise the recovery rate on the disks people actually bring in. Ordered

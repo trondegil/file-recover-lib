@@ -420,3 +420,64 @@ fn zero_run_skipping_misses_nothing() {
     originals.sort();
     assert_eq!(recovered, originals);
 }
+
+/// Every carved file carries a confidence grade: a JPEG (validated header,
+/// footer-found length) is verified; a WAV (no structural validator, length
+/// from its RIFF size field) is plausible. The counts add up to the files.
+#[test]
+fn carved_files_are_graded_by_confidence() {
+    use unearth::carver::Confidence;
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path: PathBuf = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    let jpeg = make_jpeg(&filler(21, 4000));
+    let mut wav = b"RIFF".to_vec();
+    let body = filler(22, 3000);
+    wav.extend_from_slice(&((4 + 8 + body.len()) as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEdata");
+    wav.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&body);
+
+    let mut img = filler(30, 2048);
+    img.extend_from_slice(&jpeg);
+    img.extend_from_slice(&filler(31, 2048));
+    img.extend_from_slice(&wav);
+    img.extend_from_slice(&filler(32, 2048));
+    std::fs::write(&img_path, &img).unwrap();
+
+    let source = Source::open(&img_path).unwrap();
+    let sigs = signatures::select(&["jpg".to_string(), "wav".to_string()]).unwrap();
+    let opts = CarveOptions {
+        output_dir: out_dir.clone(),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size: None,
+        max_files: None,
+        allow_nested: false,
+        validate: true,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run: false,
+        align: 1,
+    };
+    let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 2);
+    assert_eq!(stats.verified + stats.plausible + stats.truncated, 2);
+    let grade = |ext: &str| {
+        stats
+            .files
+            .iter()
+            .find(|f| f.ext == ext)
+            .map(|f| f.confidence)
+            .unwrap()
+    };
+    assert_eq!(grade("jpg"), Confidence::Verified);
+    assert_eq!(grade("wav"), Confidence::Plausible);
+    assert_eq!(stats.verified, 1);
+    assert_eq!(stats.plausible, 1);
+}

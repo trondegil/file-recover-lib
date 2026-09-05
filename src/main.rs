@@ -344,7 +344,37 @@ fn identify(args: IdentifyArgs) -> Result<()> {
 }
 
 fn info(args: InfoArgs) -> Result<()> {
-    let source = Source::open(&args.source)?;
+    if args.features {
+        if args.json {
+            let rows: Vec<String> = recover::capability_matrix()
+                .iter()
+                .map(|c| {
+                    format!(
+                        "  {{\"filesystem\": \"{}\", \"detect\": \"{}\", \"list_volumes\": \"{}\", \"undelete\": \"{}\", \"fragmented_files\": \"{}\", \"note\": \"{}\"}}",
+                        json_escape(c.filesystem),
+                        c.detect.as_str(),
+                        c.list_volumes.as_str(),
+                        c.undelete.as_str(),
+                        c.fragmentation.as_str(),
+                        json_escape(c.note)
+                    )
+                })
+                .collect();
+            println!("[\n{}\n]", rows.join(",\n"));
+        } else if args.markdown {
+            print!("{}", recover::capability_markdown());
+        } else {
+            print!("{}", recover::capability_text());
+            println!();
+            println!("\"partial\" for fragmented files means a contiguous run is assumed; \"no\" under undelete means run `scan`.");
+        }
+        return Ok(());
+    }
+    let source_path = args
+        .source
+        .clone()
+        .expect("clap requires SOURCE without --features");
+    let source = Source::open(&source_path)?;
     let detected = recover::detect(&source);
 
     if args.json {
@@ -352,7 +382,7 @@ fn info(args: InfoArgs) -> Result<()> {
         let mut out = String::from("{\n");
         out.push_str(&format!(
             "  \"source\": \"{}\",\n",
-            json_escape(&args.source.display().to_string())
+            json_escape(&source_path.display().to_string())
         ));
         out.push_str(&format!("  \"source_bytes\": {},\n", source.size));
         let table = unearth::partition::read(&source);
@@ -506,7 +536,7 @@ fn info(args: InfoArgs) -> Result<()> {
 
     println!(
         "Source: {} ({})",
-        args.source.display(),
+        source_path.display(),
         human_bytes(source.size)
     );
 
@@ -792,6 +822,7 @@ fn merge_carve_stats(into: &mut carver::CarveStats, from: carver::CarveStats) {
 }
 
 fn scan(args: ScanArgs) -> Result<()> {
+    refuse_output_on_source(&args.source, &args.output)?;
     let started = std::time::Instant::now();
     if args.unallocated && args.resume {
         anyhow::bail!("--unallocated cannot be combined with --resume");
@@ -928,6 +959,12 @@ fn scan(args: ScanArgs) -> Result<()> {
             println!("  {:<6} {}", ext, count);
         }
     }
+    if stats.files_recovered > 0 {
+        println!(
+            "Confidence: {} verified (header checked, length from the format), {} plausible (length from the format, magic only), {} truncated (cut at the size cap; tail is a guess).",
+            stats.verified, stats.plausible, stats.truncated
+        );
+    }
     if stats.rejected > 0 {
         println!(
             "Rejected {} candidate(s) that failed validation (use --no-validate to keep them).",
@@ -983,6 +1020,7 @@ fn scan(args: ScanArgs) -> Result<()> {
 }
 
 fn undelete(args: UndeleteArgs) -> Result<()> {
+    refuse_output_on_source(&args.source, &args.output)?;
     let started = std::time::Instant::now();
     let source = Source::open(&args.source)?;
     eprintln!(
@@ -1022,6 +1060,9 @@ fn undelete(args: UndeleteArgs) -> Result<()> {
     let mut total_recovered = 0u64;
     let mut total_bytes = 0u64;
     let mut total_skipped = 0u64;
+    // Volumes whose filesystem the tool only detects; if that is all there is,
+    // the run exits non-zero so "0 files" is not mistaken for "nothing there".
+    let mut detect_only = 0usize;
     // Report rows: (filesystem, volume offset, relative path, size, recovered,
     // sha256-hex). The digest is empty for skipped files and dry runs.
     let mut report_rows: Vec<(String, u64, String, u64, bool, String)> = Vec::new();
@@ -1039,6 +1080,15 @@ fn undelete(args: UndeleteArgs) -> Result<()> {
             vol.offset(),
             out.display()
         );
+        if vol.capability().undelete == recover::Support::No {
+            eprintln!(
+                "  {} is recognised, but its deleted files cannot be recovered from metadata ({}). Run `unearth scan` on this source instead.",
+                vol.fs_label(),
+                vol.capability().note
+            );
+            detect_only += 1;
+            continue;
+        }
         let stats = vol.recover_deleted(&source, &out, &opts)?;
         total_recovered += stats.recovered;
         total_bytes += stats.bytes_recovered;
@@ -1098,12 +1148,19 @@ fn undelete(args: UndeleteArgs) -> Result<()> {
         write_summary(summary_path, &fields)?;
         eprintln!("Summary written to {}", summary_path.display());
     }
+    if detect_only > 0 && detect_only == volumes.len() {
+        anyhow::bail!(
+            "no volume on this source supports undelete ({detect_only} recognised but detect-only); run `unearth scan {}` to carve by signature, or `unearth info --features` for the full matrix",
+            args.source.display()
+        );
+    }
     Ok(())
 }
 
 /// One-pass recovery: filesystem-aware undelete into `named/`, then carving
 /// into `carved/` (content-deduplicated against the undelete results).
 fn recover_all(args: RecoverArgs) -> Result<()> {
+    refuse_output_on_source(&args.source, &args.output)?;
     use std::collections::HashSet;
 
     let started = std::time::Instant::now();
@@ -1144,7 +1201,9 @@ fn recover_all(args: RecoverArgs) -> Result<()> {
     // Digests of everything undelete restored, so carving skips that content.
     let mut seen: HashSet<[u8; 32]> = HashSet::new();
     // Combined manifest rows: (kind, path-relative-to-output, size, sha256-hex).
-    let mut report_rows: Vec<(&str, String, u64, String)> = Vec::new();
+    // (kind, path, size, sha256, confidence: "named" for a file undeleted by
+    // metadata, the carver's grade for a carved one)
+    let mut report_rows: Vec<(&str, String, u64, String, &str)> = Vec::new();
     for (i, vol) in volumes.iter().enumerate() {
         let out = if multi {
             named_dir.join(format!("volume_{i}"))
@@ -1173,7 +1232,7 @@ fn recover_all(args: RecoverArgs) -> Result<()> {
                 .sha256
                 .map(|d| unearth::hash::to_hex(&d))
                 .unwrap_or_default();
-            report_rows.push(("named", rel, f.size, sha));
+            report_rows.push(("named", rel, f.size, sha, "named"));
         }
     }
 
@@ -1228,13 +1287,14 @@ fn recover_all(args: RecoverArgs) -> Result<()> {
     };
     let (mut carved_files, mut carved_bytes, mut carved_dups) = (0u64, 0u64, 0u64);
     let push_carved = |files: &[carver::CarvedFile],
-                       rows: &mut Vec<(&str, String, u64, String)>| {
+                       rows: &mut Vec<(&str, String, u64, String, &str)>| {
         for f in files {
             rows.push((
                 "carved",
                 format!("carved/{}", f.name),
                 f.size,
                 unearth::hash::to_hex(&f.sha256),
+                f.confidence.as_str(),
             ));
         }
     };
@@ -1334,7 +1394,7 @@ fn recover_all(args: RecoverArgs) -> Result<()> {
 /// its size, and its SHA-256 — so `verify --base <OUTPUT>` can re-check it.
 fn write_recover_report(
     path: &std::path::Path,
-    rows: &[(&str, String, u64, String)],
+    rows: &[(&str, String, u64, String, &str)],
 ) -> Result<()> {
     let is_json = path
         .extension()
@@ -1343,22 +1403,30 @@ fn write_recover_report(
     let mut out = String::new();
     if is_json {
         out.push_str("[\n");
-        for (i, (kind, p, size, sha)) in rows.iter().enumerate() {
+        for (i, (kind, p, size, sha, conf)) in rows.iter().enumerate() {
             let comma = if i + 1 < rows.len() { "," } else { "" };
             out.push_str(&format!(
-                "  {{\"kind\": \"{}\", \"path\": \"{}\", \"size\": {}, \"sha256\": \"{}\"}}{}\n",
+                "  {{\"kind\": \"{}\", \"path\": \"{}\", \"size\": {}, \"sha256\": \"{}\", \"confidence\": \"{}\"}}{}\n",
                 kind,
                 json_escape(p),
                 size,
                 sha,
+                conf,
                 comma
             ));
         }
         out.push_str("]\n");
     } else {
-        out.push_str("kind,path,size,sha256\n");
-        for (kind, p, size, sha) in rows {
-            out.push_str(&format!("{},{},{},{}\n", kind, csv_escape(p), size, sha));
+        out.push_str("kind,path,size,sha256,confidence\n");
+        for (kind, p, size, sha, conf) in rows {
+            out.push_str(&format!(
+                "{},{},{},{},{}\n",
+                kind,
+                csv_escape(p),
+                size,
+                sha,
+                conf
+            ));
         }
     }
     std::fs::write(path, out)
@@ -1367,6 +1435,7 @@ fn write_recover_report(
 }
 
 fn image(args: ImageArgs) -> Result<()> {
+    refuse_output_on_source(&args.source, &args.output)?;
     use unearth::image::{self, ImageOptions};
 
     let started = std::time::Instant::now();
@@ -1630,31 +1699,47 @@ fn write_carve_report(path: &std::path::Path, files: &[carver::CarvedFile]) -> R
         for (i, f) in files.iter().enumerate() {
             let comma = if i + 1 < files.len() { "," } else { "" };
             out.push_str(&format!(
-                "  {{\"name\": \"{}\", \"type\": \"{}\", \"offset\": {}, \"size\": {}, \"sha256\": \"{}\"}}{}\n",
+                "  {{\"name\": \"{}\", \"type\": \"{}\", \"offset\": {}, \"size\": {}, \"sha256\": \"{}\", \"confidence\": \"{}\"}}{}\n",
                 json_escape(&f.name),
                 f.ext,
                 f.offset,
                 f.size,
                 unearth::hash::to_hex(&f.sha256),
+                f.confidence.as_str(),
                 comma
             ));
         }
         out.push_str("]\n");
     } else {
-        out.push_str("name,type,offset,size,sha256\n");
+        out.push_str("name,type,offset,size,sha256,confidence\n");
         for f in files {
             out.push_str(&format!(
-                "{},{},{},{},{}\n",
+                "{},{},{},{},{},{}\n",
                 csv_escape(&f.name),
                 f.ext,
                 f.offset,
                 f.size,
-                unearth::hash::to_hex(&f.sha256)
+                unearth::hash::to_hex(&f.sha256),
+                f.confidence.as_str()
             ));
         }
     }
     std::fs::write(path, out)
         .map_err(|e| anyhow::anyhow!("writing report {}: {e}", path.display()))?;
+    Ok(())
+}
+
+/// Refuse to write recovered data onto the device it is being recovered
+/// from: that overwrites the very sectors the deleted files still occupy.
+/// Only fires when the two demonstrably coincide (see `source::same_device`).
+fn refuse_output_on_source(source: &std::path::Path, output: &std::path::Path) -> Result<()> {
+    if unearth::source::same_device(source, output) {
+        anyhow::bail!(
+            "refusing to write to {}: it is on the device being recovered from ({}). Writing there overwrites the data you are trying to get back. Use an output directory on another drive.",
+            output.display(),
+            source.display()
+        );
+    }
     Ok(())
 }
 

@@ -760,6 +760,12 @@ fn call_tool(name: &str, args: Option<&Json>) -> Result<Json, String> {
                     ("duplicates", n(stats.duplicates)),
                     ("skipped_large", n(stats.skipped_large)),
                     ("per_type", per_type),
+                    // How far to trust the carves: verified (header checked,
+                    // length from the format), plausible (length from the
+                    // format, magic only), truncated (cut at the size cap).
+                    ("verified", n(stats.verified)),
+                    ("plausible", n(stats.plausible)),
+                    ("truncated", n(stats.truncated)),
                 ];
                 if include_files {
                     let files: Vec<Json> = stats
@@ -773,6 +779,7 @@ fn call_tool(name: &str, args: Option<&Json>) -> Result<Json, String> {
                                 ("offset", n(f.offset)),
                                 ("size", n(f.size)),
                                 ("sha256", s(hash::to_hex(&f.sha256))),
+                                ("confidence", s(f.confidence.as_str())),
                             ])
                         })
                         .collect();

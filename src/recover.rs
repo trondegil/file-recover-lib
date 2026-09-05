@@ -702,6 +702,295 @@ impl Volume {
     }
 }
 
+/// How well a capability is covered for one filesystem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Support {
+    Yes,
+    Partial,
+    No,
+}
+
+impl Support {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Support::Yes => "yes",
+            Support::Partial => "partial",
+            Support::No => "no",
+        }
+    }
+}
+
+/// What the tool can do for one filesystem. The rows are the source of truth
+/// for the feature matrix in the README and in `unearth info --features`, and
+/// [`Volume::capability`] maps every detected volume to one, so the matrix
+/// cannot drift from the code: a new `Volume` variant does not compile until
+/// it has a row.
+#[derive(Clone, Copy, Debug)]
+pub struct Capability {
+    /// The name shown in the matrix, e.g. `"NTFS"`.
+    pub filesystem: &'static str,
+    /// Recognised by `info` and the partition walk.
+    pub detect: Support,
+    /// Reports label, UUID, size, and times in `info` / `list_volumes`.
+    pub list_volumes: Support,
+    /// Restores deleted files with names from filesystem metadata.
+    pub undelete: Support,
+    /// Reassembles a fragmented file from its metadata (not just a contiguous run).
+    pub fragmentation: Support,
+    /// One line on the biggest caveat, for the matrix.
+    pub note: &'static str,
+}
+
+const fn cap(
+    filesystem: &'static str,
+    detect: Support,
+    list_volumes: Support,
+    undelete: Support,
+    fragmentation: Support,
+    note: &'static str,
+) -> Capability {
+    Capability {
+        filesystem,
+        detect,
+        list_volumes,
+        undelete,
+        fragmentation,
+        note,
+    }
+}
+
+use Support::{No, Partial, Yes};
+
+const CAP_FAT: Capability = cap(
+    "FAT12/16/32",
+    Yes,
+    Yes,
+    Yes,
+    Partial,
+    "contiguous files only; deleted folders followed; Windows' zeroed high cluster word recovered",
+);
+const CAP_EXFAT: Capability = cap(
+    "exFAT",
+    Yes,
+    Yes,
+    Yes,
+    Partial,
+    "contiguous files only; deleted folders followed",
+);
+const CAP_NTFS: Capability = cap(
+    "NTFS",
+    Yes,
+    Yes,
+    Yes,
+    Yes,
+    "files deleted by Linux ntfs3 lose their name and land in _unnamed/",
+);
+const CAP_EXT: Capability = cap(
+    "ext2/3/4",
+    Yes,
+    Yes,
+    Yes,
+    Yes,
+    "names and extents come from the journal on modern kernels; gone once it wraps",
+);
+const CAP_HFSPLUS: Capability = cap(
+    "HFS+/HFSX",
+    Yes,
+    Yes,
+    Yes,
+    Yes,
+    "records come from the journal on macOS-formatted disks; names are in decomposed Unicode",
+);
+const CAP_APFS: Capability = cap("APFS", Yes, Yes, No, No, "copy-on-write; use scan");
+const CAP_BTRFS: Capability = cap("Btrfs", Yes, Yes, No, No, "copy-on-write; use scan");
+const CAP_REFS: Capability = cap("ReFS", Yes, Yes, No, No, "use scan");
+const CAP_XFS: Capability = cap("XFS", Yes, Yes, No, No, "use scan");
+const CAP_F2FS: Capability = cap("F2FS", Yes, Yes, No, No, "use scan");
+const CAP_REISERFS: Capability = cap("ReiserFS", Yes, Yes, No, No, "use scan");
+const CAP_JFS: Capability = cap("JFS", Yes, Yes, No, No, "use scan");
+const CAP_NILFS2: Capability = cap("NILFS2", Yes, Yes, No, No, "use scan");
+const CAP_GFS2: Capability = cap("GFS2", Yes, Yes, No, No, "use scan");
+const CAP_OCFS2: Capability = cap("OCFS2", Yes, Yes, No, No, "use scan");
+const CAP_MINIX: Capability = cap("Minix", Yes, Yes, No, No, "use scan");
+const CAP_BCACHEFS: Capability = cap("bcachefs", Yes, Yes, No, No, "use scan");
+const CAP_BEFS: Capability = cap("BeFS", Yes, Yes, No, No, "use scan");
+const CAP_UFS: Capability = cap("UFS", Yes, Yes, No, No, "use scan");
+const CAP_EROFS: Capability = cap(
+    "EROFS",
+    Yes,
+    Yes,
+    No,
+    No,
+    "read-only image format; use scan",
+);
+const CAP_CRAMFS: Capability = cap(
+    "cramfs",
+    Yes,
+    Yes,
+    No,
+    No,
+    "read-only image format; use scan",
+);
+const CAP_ROMFS: Capability = cap(
+    "romfs",
+    Yes,
+    Yes,
+    No,
+    No,
+    "read-only image format; use scan",
+);
+const CAP_LVM: Capability = cap(
+    "LVM physical volume",
+    Yes,
+    Yes,
+    No,
+    No,
+    "container; scan, or activate the volume group and recover the logical volumes",
+);
+const CAP_MDRAID: Capability = cap(
+    "Linux RAID member",
+    Yes,
+    Yes,
+    No,
+    No,
+    "container; scan, or assemble the array first",
+);
+const CAP_HFSSTD: Capability = cap("HFS (Mac OS Standard)", Yes, Yes, No, No, "use scan");
+const CAP_SWAP: Capability = cap(
+    "Linux swap",
+    Yes,
+    Yes,
+    No,
+    No,
+    "no files; scan for what was paged out",
+);
+const CAP_ENCRYPTED: Capability = cap(
+    "BitLocker / LUKS",
+    Yes,
+    Yes,
+    No,
+    No,
+    "detected only; unlock the volume first, then recover from the decrypted device",
+);
+const CAP_UDF: Capability = cap("UDF", Yes, Yes, No, No, "optical media; use scan");
+const CAP_ISO: Capability = cap("ISO 9660", Yes, Yes, No, No, "read-only media; use scan");
+
+/// Every filesystem the tool knows, in matrix order.
+pub fn capability_matrix() -> &'static [Capability] {
+    &[
+        CAP_FAT,
+        CAP_EXFAT,
+        CAP_NTFS,
+        CAP_EXT,
+        CAP_HFSPLUS,
+        CAP_APFS,
+        CAP_BTRFS,
+        CAP_REFS,
+        CAP_XFS,
+        CAP_F2FS,
+        CAP_REISERFS,
+        CAP_JFS,
+        CAP_NILFS2,
+        CAP_GFS2,
+        CAP_OCFS2,
+        CAP_MINIX,
+        CAP_BCACHEFS,
+        CAP_BEFS,
+        CAP_UFS,
+        CAP_EROFS,
+        CAP_CRAMFS,
+        CAP_ROMFS,
+        CAP_LVM,
+        CAP_MDRAID,
+        CAP_HFSSTD,
+        CAP_SWAP,
+        CAP_ENCRYPTED,
+        CAP_UDF,
+        CAP_ISO,
+    ]
+}
+
+/// The matrix as a Markdown table, the exact text the README carries.
+pub fn capability_markdown() -> String {
+    let mut out = String::from(
+        "| Filesystem | Detect | List volumes | Undelete | Fragmented files | Notes |
+|---|---|---|---|---|---|
+",
+    );
+    for c in capability_matrix() {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} |
+",
+            c.filesystem,
+            c.detect.as_str(),
+            c.list_volumes.as_str(),
+            c.undelete.as_str(),
+            c.fragmentation.as_str(),
+            c.note
+        ));
+    }
+    out
+}
+
+/// The matrix as a plain-text table for the terminal.
+pub fn capability_text() -> String {
+    let mut out = format!(
+        "{:<22} {:<7} {:<13} {:<9} {:<11} {}
+",
+        "FILESYSTEM", "DETECT", "LIST VOLUMES", "UNDELETE", "FRAGMENTED", "NOTES"
+    );
+    for c in capability_matrix() {
+        out.push_str(&format!(
+            "{:<22} {:<7} {:<13} {:<9} {:<11} {}
+",
+            c.filesystem,
+            c.detect.as_str(),
+            c.list_volumes.as_str(),
+            c.undelete.as_str(),
+            c.fragmentation.as_str(),
+            c.note
+        ));
+    }
+    out
+}
+
+impl Volume {
+    /// The capability row for this volume's filesystem. Exhaustive on purpose.
+    pub fn capability(&self) -> &'static Capability {
+        match self {
+            Volume::Fat(_) => &CAP_FAT,
+            Volume::Exfat(_) => &CAP_EXFAT,
+            Volume::Ntfs(_) => &CAP_NTFS,
+            Volume::Ext(_) => &CAP_EXT,
+            Volume::Hfs(_) => &CAP_HFSPLUS,
+            Volume::Apfs(_) => &CAP_APFS,
+            Volume::Btrfs(_) => &CAP_BTRFS,
+            Volume::Refs(_) => &CAP_REFS,
+            Volume::Xfs(_) => &CAP_XFS,
+            Volume::F2fs(_) => &CAP_F2FS,
+            Volume::Reiserfs(_) => &CAP_REISERFS,
+            Volume::Jfs(_) => &CAP_JFS,
+            Volume::Nilfs2(_) => &CAP_NILFS2,
+            Volume::Gfs2(_) => &CAP_GFS2,
+            Volume::Ocfs2(_) => &CAP_OCFS2,
+            Volume::Minix(_) => &CAP_MINIX,
+            Volume::Bcachefs(_) => &CAP_BCACHEFS,
+            Volume::Befs(_) => &CAP_BEFS,
+            Volume::Ufs(_) => &CAP_UFS,
+            Volume::Erofs(_) => &CAP_EROFS,
+            Volume::Cramfs(_) => &CAP_CRAMFS,
+            Volume::Romfs(_) => &CAP_ROMFS,
+            Volume::Lvm(_) => &CAP_LVM,
+            Volume::Mdraid(_) => &CAP_MDRAID,
+            Volume::HfsStd(_) => &CAP_HFSSTD,
+            Volume::Swap(_) => &CAP_SWAP,
+            Volume::Encrypted(_) => &CAP_ENCRYPTED,
+            Volume::Udf(_) => &CAP_UDF,
+            Volume::Iso(_) => &CAP_ISO,
+        }
+    }
+}
+
 /// Detect every supported volume in `src`: a bare volume at offset 0, or the
 /// volumes referenced by a GPT or legacy MBR partition table.
 pub fn detect(src: &Source) -> Result<Vec<Volume>> {
@@ -1225,6 +1514,31 @@ mod tests {
             "excluded even though it matches include"
         );
         assert!(!both.name_ok("photo.jpg"), "not an include match");
+    }
+
+    #[test]
+    fn capability_matrix_lists_every_variant_once() {
+        let names: Vec<&str> = super::capability_matrix()
+            .iter()
+            .map(|c| c.filesystem)
+            .collect();
+        let mut dedup = names.clone();
+        dedup.sort();
+        dedup.dedup();
+        assert_eq!(names.len(), dedup.len(), "duplicate row: {names:?}");
+        let md = super::capability_markdown();
+        assert!(md.starts_with("| Filesystem |"));
+        assert_eq!(md.lines().count(), names.len() + 2);
+        // Undelete is only claimed for the five filesystems with a real-image corpus.
+        let yes: Vec<&str> = super::capability_matrix()
+            .iter()
+            .filter(|c| c.undelete == super::Support::Yes)
+            .map(|c| c.filesystem)
+            .collect();
+        assert_eq!(
+            yes,
+            ["FAT12/16/32", "exFAT", "NTFS", "ext2/3/4", "HFS+/HFSX"]
+        );
     }
 
     #[test]
