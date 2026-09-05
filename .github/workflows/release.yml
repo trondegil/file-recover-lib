@@ -40,17 +40,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `smoke` marks the targets the runner itself can execute; those get
+        # run against a corpus image before their binary is uploaded.
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            smoke: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            smoke: true
           - os: macos-latest
             target: aarch64-apple-darwin
+            smoke: true
           - os: macos-latest
             target: x86_64-apple-darwin
+            smoke: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            smoke: true
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +70,17 @@ jobs:
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # A binary that builds but cannot recover must not reach the Release
+      # page: recover one real-filesystem corpus image with it and check the
+      # hashes (corpus/smoke.sh).
+      - name: Smoke test against a corpus image
+        if: matrix.smoke
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/unearth"
+          [ "${{ matrix.os }}" = windows-latest ] && bin="$bin.exe"
+          bash corpus/smoke.sh "$bin"
 
       - name: Package (Unix)
         if: matrix.os != 'windows-latest'

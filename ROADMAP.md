@@ -127,6 +127,16 @@ Done when. CI is green on three operating systems, the corpus test passes on
 all three, and a physical USB stick has been recovered end to end on each
 platform by a human following only the README.
 
+Status (September 2026). Items 1, 2, 3, 4, 6, and 7 are in place: the suite
+and the corpus test run on Ubuntu, macOS, and Windows in CI; positioned
+reads use `seek_read` on Windows; a device that refuses `SEEK_END` has its
+size probed by reading; a permission failure prints the fix for the
+platform; recovered names are made Windows-safe on Windows; and the release
+workflow recovers a corpus image with each native binary before uploading
+it (`corpus/smoke.sh`). Still open: item 5 (the corpus does not yet assert
+restored timestamps) and the human end-to-end run with a physical USB stick
+on each platform, which no CI can stand in for.
+
 ## Step 3. Harden the engine
 
 Goal. The tool never crashes, never runs away, and never writes where it

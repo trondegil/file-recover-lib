@@ -141,6 +141,11 @@ tells you when a run beats the recorded value.
 Other switches: `UNEARTH_CORPUS_DIR` points at the images, `UNEARTH_CORPUS_ONLY`
 filters by name substring, `UNEARTH_CORPUS_OFFLINE` disables the download.
 
+The CI job runs the corpus on Ubuntu, macOS, and Windows runners, so a
+parser that behaves differently on one platform is caught there. The
+release workflow also runs `corpus/smoke.sh` with each freshly built
+native binary against one image before uploading it.
+
 ## Publishing
 
 Images are not in git. They are published as one tarball on a GitHub Release
