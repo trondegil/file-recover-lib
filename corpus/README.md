@@ -79,8 +79,10 @@ Notes on what the platforms do that a synthetic image never would:
 - Linux mounts FAT with `utf8=1`, as desktop automounters do, so non-ASCII
   names land as long-name entries.
 - The Windows images are VHDs: a raw disk with an MBR and one partition, plus
-  a 512-byte footer that unearth ignores. The Windows recipe is written but
-  has not yet been run on a Windows machine.
+  a 512-byte footer that unearth ignores. They are built by the
+  `Corpus (Windows)` GitHub Actions workflow on a `windows-latest` runner
+  (which runs elevated); download its two artifacts into `corpus/images/`
+  and `corpus/expected/`, then regenerate the lock.
 - 64 MiB is the smallest FAT32 volume macOS will create.
 
 ## Building the images
@@ -180,8 +182,9 @@ at the front.
 
 ## What the corpus has found so far
 
-The first build (September 2026, 49 images from macOS and Linux) found the
-following. Every one had passed the synthetic test suite.
+The first build (September 2026, 49 images from macOS and Linux, then 21
+from Windows via the `Corpus (Windows)` workflow) found the following. Every
+one had passed the synthetic test suite.
 
 | Finding | Effect on a user | Fix |
 |---|---|---|
@@ -193,6 +196,9 @@ following. Every one had passed the synthetic test suite.
 | ext4 undelete found nothing on a Linux-formatted disk. Linux 6.x/7.x zeroes the deleted directory entry, and a deleted inode's empty extent header was being taken as a usable block map. | Zero recovery on every modern Linux disk. | Names are read from journaled directory blocks; an extent header with no entries no longer counts as a map; the newest journaled inode copy is preferred. |
 | FAT and exFAT undelete skipped the contents of a folder that had been deleted as a whole. | Every "I deleted the wrong folder" case lost all files. | Deleted directories are descended (FAT: only when the cluster still starts with `.`). |
 | NTFS files deleted by the Linux `ntfs3` driver lose their `$FILE_NAME` attribute but keep `$DATA`. | Zero recovery on Linux-written NTFS. | Nameless records are recovered under `_unnamed/` with a content-identified extension. |
+| Windows zeroes the high 16 bits of a deleted FAT32 entry's start cluster. On a volume with more than 65,536 clusters (any card over about 32 MB at 512-byte clusters, or 256 GB at 4 KiB) every deleted file past cluster 65,535 was read from the wrong place. | Wrong bytes for a third of the deleted files on a Windows-formatted card. | The cluster is found again among the free candidates: a `.` entry naming itself for a folder, the content's identified type for a file, then the longest free run. |
+| Windows frees a deleted folder's cluster without writing back the deletion markers of the files it just removed, so they still look live. | Nothing under a folder deleted on Windows came back, on FAT32 and exFAT. | Everything under a deleted folder counts as deleted. |
+| Windows stores an all-lowercase 8.3 name without a long-name entry, flagging the case in a reserved byte. | `jpg-000.jpg` came back as `_PG-000.JPG`. | The case flags are honoured. |
 
 Known gaps the baselines document rather than hide:
 
@@ -207,5 +213,4 @@ Known gaps the baselines document rather than hide:
 - The `overwritten` scenario's two victims are recovered on most images
   because the allocator did not actually reuse their clusters; they are
   reported as bonuses, not counted.
-- Windows-formatted images are missing until the Windows recipe is run, and
-  no device-made images have been collected yet.
+- No device-made images have been collected yet.

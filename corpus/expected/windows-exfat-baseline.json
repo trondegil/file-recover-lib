@@ -1,0 +1,68 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "DCIM/IMG_1001.jpg",
+      "sha256": "2c9253c109ec8ecff13fdbf66f99c68f59b89f3baae81e93404a2f3c5ee72136",
+      "size": 318041
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "DCIM/IMG_1004.jpg",
+      "sha256": "d22e9cd5ba07bc96a9db2a6bc4aec18b9053e83ed409ee1f1d834e076d85e6a9",
+      "size": 821331
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "DCIM/IMG_1007.jpg",
+      "sha256": "878c014f4e0cff47ec5f562f4faaea7b2270e9e95606a896e7ef0a064304d159",
+      "size": 570001
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "audio/take1.wav",
+      "sha256": "66d76ba8eb82f1e492038b70cdce333255698a72c3198ea8fd8a66efd158b8f7",
+      "size": 325957
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "docs/report-2023.pdf",
+      "sha256": "382552b53944be55cfc3e946bcc39937d45d196f092beb71c9244e75d8628019",
+      "size": 531145
+    },
+    {
+      "carvable": false,
+      "expect": "intact",
+      "path": "docs/todo.txt",
+      "sha256": "0e3c165e7ba3a01e5a0845b44b7794c6293816e509f1560563880e9840989d17",
+      "size": 1441
+    },
+    {
+      "carvable": false,
+      "expect": "intact",
+      "path": "tiny.txt",
+      "sha256": "c0c0b73cb61125bd7b24ecf6286c1e74add245290876603d83a7f7c1c2bf01b4",
+      "size": 7
+    }
+  ],
+  "filesystem": "exfat",
+  "image": {
+    "file": "windows-exfat-baseline.vhd",
+    "sha256": "a6c946dd5a5ba38d58afd6ca72f7c46cba11295592098c2b23f49722bdb6287d",
+    "size": 67109376
+  },
+  "live_files": 13,
+  "name": "windows-exfat-baseline",
+  "platform": "windows",
+  "scenario": "baseline",
+  "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
+}

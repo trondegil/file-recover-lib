@@ -1,0 +1,264 @@
+{
+  "baseline": {
+    "scan": 0.25,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "big-0.jpg",
+      "sha256": "f03efe03c6a14a80df1585096932e7e2edf1ef95d2cbb5c77583872eebdc393d",
+      "size": 3145731
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "big-1.pdf",
+      "sha256": "22f9b70632309e11163f1a0b495eb881c86bfd4bb487b851bba8c636dcb20ab3",
+      "size": 4194309
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "big-2.png",
+      "sha256": "4fa684428eddc1699cebd4a1823c00e8e8c2067a9682f13c6c39d475b81b5b75",
+      "size": 5242887
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "path": "keep-03.png",
+      "sha256": "6c6bc78a667bf4ab1db4f609bd963cf5ae2243ec1e5f18700f5eb7fce0c3b3f3",
+      "size": 1044481
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-00.bin",
+      "sha256": "b837462a5ef8c70e6fa589b392898400391a64e3e58bcd1f09ad4869ae93769d",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-01.bin",
+      "sha256": "5c04bcc5767afa54ac073df09a8bce247e38ec05207b2924cd02deb897ef84ae",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-02.bin",
+      "sha256": "f6133d95c281298c939fae243cb20d3655854736533c4e59aea7c24d08b744fb",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-03.bin",
+      "sha256": "e66490a09dc5921a5dcaebc83b0f143af37ebddb70d5098fcf874ef5ae92d5a5",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-04.bin",
+      "sha256": "ba12c06e9f23294024d78b1ded4576965a72e8ba85335c56ee5d880af6867826",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-05.bin",
+      "sha256": "709e17bff26ccc7e72c445a44d84a6a167b3f8c4f4df053e716a29c473cfc207",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-06.bin",
+      "sha256": "60d61999efc4bf0145f32b48fc850c4d12721c508394514f6d36425f75078404",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-07.bin",
+      "sha256": "55d94890887ac5509d0bc3c809fb098c257969701871b510144418ec393e660d",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-08.bin",
+      "sha256": "5944667d83dfa0c07494b24db009ad5d2e041d59313fe8341ec76987c20cb001",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-09.bin",
+      "sha256": "b5227dba4048237d46af2d8736451c1b90e4f512380577550a24bdadf20d5e40",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-10.bin",
+      "sha256": "181f41b015ab5fc26987d532c86633ec62e8308f067448974759b488429ce09a",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-11.bin",
+      "sha256": "ef3f428ead5bceb2d2142f7fdef21a8b79b7eb3245095f823faf2976cca84544",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-12.bin",
+      "sha256": "eda2964e9065983af4e212fbf2d8d9bb2070243a48148ac298990642f0ae467e",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-13.bin",
+      "sha256": "a3bb58d00f3b3b758d720bdcc37bea56ec9632bbebffad4f9cd53a62259ab031",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-14.bin",
+      "sha256": "d4c8eed272f66f2a0c867e2772bdadf38b46292051390e8a313ea117b6739b5c",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-15.bin",
+      "sha256": "20b74814f0ea3e5f879d8771fa9148acc2b176a87c5c03614d5534fa5ea62c1d",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-16.bin",
+      "sha256": "3cd970f70f1d73600e02a63069af55e8f2fa5000d15f54b66279eb951eccf56f",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-17.bin",
+      "sha256": "f60c38167c6d1b56e438f88c9a298dc7d5bfae8f2100269a8bb9937a0a123138",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-18.bin",
+      "sha256": "faec457e17c69f3f60654bf245dc23e70df0174e7bd525c4e7a2cb85bec9c172",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-19.bin",
+      "sha256": "386bbfcb9d94e803751ff5c8c4aa8c6a64d4f32f03aa750db55916693b1b758e",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-20.bin",
+      "sha256": "cd1899fd10c20d71e8196c44b9f6a433e37b49fdd0d4f906ad9807a867149ac2",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-21.bin",
+      "sha256": "725871d3df2125b2be263793fbf26a906ff61c8d8078c0ac9d444d84ee0833b3",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-22.bin",
+      "sha256": "019e58cca6a72ce47a4a2a8885745f7c43866129dc764dfdc6ee0e00b749d88f",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-23.bin",
+      "sha256": "a11821e261980c01ea45be1c6a29d7cd693e26f5b57000f49089db9cb09a98c3",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-24.bin",
+      "sha256": "d663d38f8e24458ea15cb488d0638b920b20f6df4f3958576e38dba317bd3b29",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-25.bin",
+      "sha256": "fba6db24781aafaa6a155c3eecc62dbdb7e894c4034353da974111de660cd871",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-26.bin",
+      "sha256": "99c7d58191654f022dd29474f289745ce62b26cbdacdcd66aaaf35e70223b9c9",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-27.bin",
+      "sha256": "15e045e6fc6cf740e999aec43831796c36d0c26017b661f5d2b18bd0ceac0262",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-28.bin",
+      "sha256": "6798ba97659754d66ff6ca3c6184207edd19d4b1901d42ca3918a89a665e9eb1",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-29.bin",
+      "sha256": "f372ccd7c7e118a49e0621ada5a5bad001e34225c377b987b2a1c602101d1634",
+      "size": 1044991
+    },
+    {
+      "carvable": false,
+      "expect": "maybe",
+      "path": "spacer-30.bin",
+      "sha256": "4b1e56392bcbdb1f9e6f960ab66e482c644ba1e56bdf3fbf86ace4ec1b2092a5",
+      "size": 1044991
+    }
+  ],
+  "filesystem": "ntfs",
+  "image": {
+    "file": "windows-ntfs-fragmented.vhd",
+    "sha256": "0be3e37157fd18e00a0db36041887fa1d4a4c6cb11a5fa33facc9244ba79abf7",
+    "size": 67109376
+  },
+  "live_files": 30,
+  "name": "windows-ntfs-fragmented",
+  "platform": "windows",
+  "scenario": "fragmented",
+  "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
+}
