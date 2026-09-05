@@ -1,0 +1,59 @@
+[package]
+name = "unearth-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tempfile = "3"
+
+[dependencies.unearth]
+path = ".."
+
+# Every parser that reads untrusted bytes gets a target. Run one with
+# `cargo +nightly fuzz run <name>`; see fuzz/README.md.
+[[bin]]
+name = "filesystems"
+path = "fuzz_targets/filesystems.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "carve"
+path = "fuzz_targets/carve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "custom_spec"
+path = "fuzz_targets/custom_spec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "identify"
+path = "fuzz_targets/identify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+bench = false

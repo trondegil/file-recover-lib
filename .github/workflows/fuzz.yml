@@ -1,0 +1,49 @@
+name: Fuzz
+
+# Nightly fuzzing of every parser that reads untrusted bytes (fuzz/README.md).
+# Each target runs for a fixed time; a crash fails the job and attaches the
+# input, which then belongs in tests/fuzz_regressions/<target>/ next to its fix.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        required: false
+        default: "600"
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [filesystems, carve, json, custom_spec, identify, manifest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install nightly and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --locked
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: fuzz
+
+      - name: Fuzz ${{ matrix.target }}
+        run: |
+          secs="${{ github.event.inputs.seconds }}"
+          cargo +nightly fuzz run ${{ matrix.target }} -- \
+            -max_total_time="${secs:-600}" -rss_limit_mb=2048 -timeout=60
+
+      - name: Attach crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
