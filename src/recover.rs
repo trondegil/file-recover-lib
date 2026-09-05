@@ -137,6 +137,54 @@ fn is_windows_reserved(name: &str) -> bool {
             && stem.as_bytes()[3] != b'0')
 }
 
+/// Keep a recovered relative path inside the output directory whatever its
+/// components say: only normal components survive, so `..`, a root, or a
+/// drive prefix can never lead outside. The per-component sanitizers already
+/// prevent this; this is the second line of defence that turns a future
+/// sanitizer bug into a dropped component rather than a file outside the
+/// folder.
+pub fn confine(rel: &Path) -> PathBuf {
+    rel.components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(n) => Some(n),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Join a recovered relative path onto the output directory, confined (see
+/// [`confine`]), and make it unique by appending a counter if a file is
+/// already there.
+pub fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
+    let rel = confine(rel);
+    let rel = if rel.as_os_str().is_empty() {
+        PathBuf::from("_recovered")
+    } else {
+        rel
+    };
+    let candidate = out_dir.join(&rel);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = rel
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let ext = rel.extension().map(|e| e.to_string_lossy().to_string());
+    let parent = rel.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    for i in 1.. {
+        let name = match &ext {
+            Some(e) => format!("{stem}_{i}.{e}"),
+            None => format!("{stem}_{i}"),
+        };
+        let candidate = out_dir.join(&parent).join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
 pub fn file_name_of(p: &Path) -> &str {
     p.file_name().and_then(|s| s.to_str()).unwrap_or("")
 }
@@ -1177,6 +1225,31 @@ mod tests {
             "excluded even though it matches include"
         );
         assert!(!both.name_ok("photo.jpg"), "not an include match");
+    }
+
+    #[test]
+    fn output_paths_stay_inside_the_output_directory() {
+        use std::path::{Path, PathBuf};
+        let out = Path::new("/recovered");
+        assert_eq!(
+            super::confine(Path::new("a/b.txt")),
+            PathBuf::from("a/b.txt")
+        );
+        assert_eq!(
+            super::confine(Path::new("../../etc/passwd")),
+            PathBuf::from("etc/passwd")
+        );
+        assert_eq!(
+            super::confine(Path::new("/etc/passwd")),
+            PathBuf::from("etc/passwd")
+        );
+        assert_eq!(super::confine(Path::new("a/../../b")), PathBuf::from("a/b"));
+        assert!(super::unique_path(out, Path::new("../x")).starts_with(out));
+        assert!(super::unique_path(out, Path::new("..")).starts_with(out));
+        assert_eq!(
+            super::unique_path(out, Path::new("..")),
+            out.join("_recovered")
+        );
     }
 
     #[test]

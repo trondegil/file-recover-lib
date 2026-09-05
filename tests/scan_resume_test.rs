@@ -144,6 +144,6 @@ fn completed_scan_checkpoint_makes_resume_a_noop() {
     assert_eq!(std::fs::read_dir(&out).unwrap().count(), 1);
 }
 
-fn all_sigs() -> Vec<&'static unearth::signatures::Signature> {
+fn all_sigs() -> Vec<&'static unearth::signatures::Signature<'static>> {
     unearth::signatures::select(&[]).unwrap()
 }

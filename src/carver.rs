@@ -74,7 +74,7 @@ pub struct CarvedFile {
     /// Output file name within the output directory.
     pub name: String,
     /// File-type extension, e.g. `"jpg"`.
-    pub ext: &'static str,
+    pub ext: String,
     /// Byte offset of the file's start within the source.
     pub offset: u64,
     /// Number of bytes written.
@@ -96,7 +96,7 @@ pub struct CarveStats {
     /// Recognised files skipped because they exceeded the `--max-size` cap.
     pub skipped_large: u64,
     /// Recovered-file count per extension.
-    pub per_type: std::collections::BTreeMap<&'static str, u64>,
+    pub per_type: std::collections::BTreeMap<String, u64>,
     /// Per-file records, populated for the recovery report.
     pub files: Vec<CarvedFile>,
 }
@@ -104,7 +104,7 @@ pub struct CarveStats {
 /// Scan `source` for the `active` signatures and write recovered files.
 pub fn carve(
     source: &Source,
-    active: &[&'static Signature],
+    active: &[&Signature],
     opts: &CarveOptions,
     progress: &dyn ProgressSink,
 ) -> Result<CarveStats> {
@@ -116,7 +116,7 @@ pub fn carve(
 /// content is new. Has no effect unless [`CarveOptions::dedup`] is set.
 pub fn carve_seeded(
     source: &Source,
-    active: &[&'static Signature],
+    active: &[&Signature],
     opts: &CarveOptions,
     progress: &dyn ProgressSink,
     seed: HashSet<[u8; 32]>,
@@ -376,10 +376,10 @@ fn read_checkpoint(path: &std::path::Path) -> Option<LoadedCheckpoint> {
                     it.next().and_then(parse_hex32),
                     it.next(),
                 ) {
-                    *stats.per_type.entry(ext).or_insert(0) += 1;
+                    *stats.per_type.entry(ext.to_string()).or_insert(0) += 1;
                     stats.files.push(CarvedFile {
                         name: name.to_string(),
-                        ext,
+                        ext: ext.to_string(),
                         offset,
                         size,
                         sha256: sha,
@@ -6978,12 +6978,12 @@ fn passes_validation(source: &Source, sig: &Signature, file_start: u64, len: u64
 /// extension, but a ZIP is inspected for the marker entries of the common
 /// ZIP-based formats so a recovered Office/OpenDocument/e-book/Java/Android file
 /// gets a usable name (`.docx`, `.xlsx`, …) instead of a generic `.zip`.
-fn effective_ext(
+fn effective_ext<'a>(
     source: &Source,
-    sig: &Signature,
+    sig: &Signature<'a>,
     file_start: u64,
     len: u64,
-) -> Result<&'static str> {
+) -> Result<&'a str> {
     if sig.ext != "zip" && sig.ext != "ole" {
         return Ok(sig.ext);
     }
@@ -7023,13 +7023,21 @@ fn write_file(
     let base = format!("{:08}_{:#016x}.{}", stats.files_recovered, file_start, ext);
     // With `--organize`, group files into a per-type subdirectory; the manifest
     // name keeps the `<ext>/` prefix so `verify` still resolves it.
+    // Both names are generated here, but they still pass through the write
+    // barrier: nothing gets created outside the output directory.
     let (name, path): (String, PathBuf) = if opts.organize {
         (
             format!("{}/{}", ext, base),
-            opts.output_dir.join(ext).join(&base),
+            opts.output_dir.join(crate::recover::confine(
+                &std::path::Path::new(ext).join(&base),
+            )),
         )
     } else {
-        (base.clone(), opts.output_dir.join(&base))
+        (
+            base.clone(),
+            opts.output_dir
+                .join(crate::recover::confine(std::path::Path::new(&base))),
+        )
     };
     // In dry-run mode nothing is written; the bytes are still read and hashed so
     // the tally, manifest, and dedup behave exactly as a real run would.
@@ -7082,10 +7090,10 @@ fn write_file(
     let written = len - remaining;
     stats.files_recovered += 1;
     stats.bytes_recovered += written;
-    *stats.per_type.entry(ext).or_insert(0) += 1;
+    *stats.per_type.entry(ext.to_string()).or_insert(0) += 1;
     stats.files.push(CarvedFile {
         name,
-        ext,
+        ext: ext.to_string(),
         offset: file_start,
         size: written,
         sha256: digest,

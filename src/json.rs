@@ -180,6 +180,7 @@ pub fn parse(input: &str) -> Result<Json, String> {
     let mut p = Parser {
         chars: input.chars().collect(),
         pos: 0,
+        depth: 0,
     };
     p.skip_ws();
     let v = p.value()?;
@@ -190,9 +191,16 @@ pub fn parse(input: &str) -> Result<Json, String> {
     Ok(v)
 }
 
+/// Nesting deeper than this is refused. Each level costs a stack frame, so an
+/// unbounded depth lets a request a few thousand levels deep overflow the
+/// stack and kill the MCP server; 128 is far beyond any real request.
+const MAX_DEPTH: usize = 128;
+
 struct Parser {
     chars: Vec<char>,
     pos: usize,
+    /// Current nesting of arrays and objects.
+    depth: usize,
 }
 
 impl Parser {
@@ -217,8 +225,8 @@ impl Parser {
     fn value(&mut self) -> Result<Json, String> {
         self.skip_ws();
         match self.peek() {
-            Some('{') => self.object(),
-            Some('[') => self.array(),
+            Some('{') => self.nested(Parser::object),
+            Some('[') => self.nested(Parser::array),
             Some('"') => Ok(Json::Str(self.string()?)),
             Some('t') | Some('f') => self.boolean(),
             Some('n') => self.null(),
@@ -226,6 +234,17 @@ impl Parser {
             Some(c) => Err(format!("unexpected character '{c}'")),
             None => Err("unexpected end of input".to_string()),
         }
+    }
+
+    /// Parse a container one level down, refusing to go past `MAX_DEPTH`.
+    fn nested(&mut self, f: fn(&mut Parser) -> Result<Json, String>) -> Result<Json, String> {
+        if self.depth >= MAX_DEPTH {
+            return Err(format!("nesting deeper than {MAX_DEPTH} levels"));
+        }
+        self.depth += 1;
+        let r = f(self);
+        self.depth -= 1;
+        r
     }
 
     fn expect(&mut self, word: &str) -> Result<(), String> {
@@ -405,6 +424,20 @@ mod tests {
         assert_eq!(v.get("s").unwrap().as_str(), Some("x"));
         assert_eq!(v.get("a").unwrap().as_array().unwrap().len(), 2);
         assert_eq!(v.get("missing"), None);
+    }
+
+    #[test]
+    fn refuses_absurd_nesting_without_overflowing() {
+        let deep = "[".repeat(100_000) + &"]".repeat(100_000);
+        let err = parse(&deep).unwrap_err();
+        assert!(err.contains("nesting deeper"), "{err}");
+        let nested_objects = "{\"a\":".repeat(5_000) + "1" + &"}".repeat(5_000);
+        assert!(parse(&nested_objects).is_err());
+        // The limit itself is fine.
+        let ok = "[".repeat(128) + &"]".repeat(128);
+        assert!(parse(&ok).is_ok());
+        let too_deep = "[".repeat(129) + &"]".repeat(129);
+        assert!(parse(&too_deep).is_err());
     }
 
     #[test]

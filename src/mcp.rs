@@ -718,8 +718,13 @@ fn call_tool(name: &str, args: Option<&Json>) -> Result<Json, String> {
 
             let id = crate::job::start("scan", move |progress| {
                 let source = open(&source_path)?;
-                let mut active = signatures::select(&types).map_err(|e| e.to_string())?;
-                active.extend(custom.iter().copied());
+                // The custom specs live in this closure; their signatures
+                // borrow from them and go away with the job.
+                let custom_sigs: Vec<signatures::Signature<'_>> =
+                    custom.iter().map(|c| c.to_signature()).collect();
+                let mut active: Vec<&signatures::Signature<'_>> =
+                    signatures::select(&types).map_err(|e| e.to_string())?;
+                active.extend(custom_sigs.iter());
                 let opts = carver::CarveOptions {
                     output_dir: output_dir.clone().into(),
                     start: 0,
@@ -764,7 +769,7 @@ fn call_tool(name: &str, args: Option<&Json>) -> Result<Json, String> {
                         .map(|f| {
                             obj(vec![
                                 ("name", s(f.name.as_str())),
-                                ("type", s(f.ext)),
+                                ("type", s(&f.ext)),
                                 ("offset", n(f.offset)),
                                 ("size", n(f.size)),
                                 ("sha256", s(hash::to_hex(&f.sha256))),

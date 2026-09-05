@@ -419,7 +419,7 @@ mod tests {
     use super::*;
     use crate::signatures::{select, Signature};
 
-    fn sig(ext: &str) -> &'static Signature {
+    fn sig(ext: &str) -> &'static Signature<'static> {
         let all = select(&[]).unwrap();
         all.into_iter().find(|s| s.ext == ext).unwrap()
     }
