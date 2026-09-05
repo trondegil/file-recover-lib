@@ -1,0 +1,59 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496800,
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-lo-0.jpg",
+      "sha256": "2c6bd950305821f6bb586985e92c25211c4d20db8cf7dd5562573eabca1ace62",
+      "size": 371509
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496922,
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going--2.bmp",
+      "sha256": "46bf8f87e36cf5c07dd0999587d1f4d96209adc910594b79137126a2e07dac9a",
+      "size": 200323
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497044,
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-n-4.wav",
+      "sha256": "9ec834485b1f528c0139e7dc961cb8186fd623b44608b5e43ad503ebd4d2e73c",
+      "size": 160465
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497288,
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-2-a-very-long-file-name-that--8.pdf",
+      "sha256": "0f9f3812d21388f246764ee8ad776231e347cdddb0080c59d068a3024076b6e8",
+      "size": 135633
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497166,
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-6.png",
+      "sha256": "7d1345425796dccd733264eddf4db6e576e674ba133d62d4df32f89e5a8ced7b",
+      "size": 291921
+    }
+  ],
+  "filesystem": "fat32",
+  "image": {
+    "file": "macos-fat32-longnames.img",
+    "sha256": "226c7112ce27a5984ea677790d29b79ac51860c3b881219848f3d401f1e6039f",
+    "size": 67108864
+  },
+  "live_files": 5,
+  "name": "macos-fat32-longnames",
+  "platform": "macos",
+  "scenario": "longnames",
+  "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
+}

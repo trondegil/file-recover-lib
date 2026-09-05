@@ -12,7 +12,12 @@ cargo test                                  # unit + integration tests
 ```
 
 CI (`.github/workflows/ci.yml`) runs all three; please make sure they pass
-locally before opening a PR. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
+locally before opening a PR. A change to a filesystem parser or the carver
+should also be run against the real-image corpus (`corpus/README.md`):
+
+```sh
+cargo test --release --test corpus_test -- --ignored --nocapture
+``` See [ARCHITECTURE.md](ARCHITECTURE.md) for the
 module map and [PERFORMANCE.md](PERFORMANCE.md) for the heap-profiling harness.
 
 A few conventions the codebase holds to (see *Robustness conventions* in

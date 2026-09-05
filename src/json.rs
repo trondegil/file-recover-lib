@@ -95,6 +95,57 @@ impl Json {
     }
 }
 
+impl Json {
+    /// Serialize to indented, human-readable JSON: two-space indent, one
+    /// element or member per line, keys in sorted order, trailing newline.
+    /// Used for files people read and diff (the test-corpus manifests).
+    pub fn to_pretty_string(&self) -> String {
+        let mut out = String::new();
+        self.write_pretty(&mut out, 0);
+        out.push('\n');
+        out
+    }
+
+    fn write_pretty(&self, out: &mut String, depth: usize) {
+        fn indent(out: &mut String, depth: usize) {
+            for _ in 0..depth {
+                out.push_str("  ");
+            }
+        }
+        match self {
+            Json::Arr(a) if !a.is_empty() => {
+                out.push_str("[\n");
+                for (i, v) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(",\n");
+                    }
+                    indent(out, depth + 1);
+                    v.write_pretty(out, depth + 1);
+                }
+                out.push('\n');
+                indent(out, depth);
+                out.push(']');
+            }
+            Json::Obj(m) if !m.is_empty() => {
+                out.push_str("{\n");
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(",\n");
+                    }
+                    indent(out, depth + 1);
+                    write_escaped(k, out);
+                    out.push_str(": ");
+                    v.write_pretty(out, depth + 1);
+                }
+                out.push('\n');
+                indent(out, depth);
+                out.push('}');
+            }
+            other => other.write(out),
+        }
+    }
+}
+
 impl std::fmt::Display for Json {
     /// Serialize to compact JSON.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -369,5 +420,16 @@ mod tests {
     fn escapes_control_chars_when_writing() {
         let j = Json::Str("tab\tnewline\n".to_string());
         assert_eq!(j.to_string(), "\"tab\\tnewline\\n\"");
+    }
+
+    #[test]
+    fn pretty_prints_and_round_trips() {
+        let v = parse("{\"b\":[1,{\"x\":null}],\"a\":\"s\",\"e\":[],\"o\":{}}").unwrap();
+        let pretty = v.to_pretty_string();
+        assert_eq!(
+            pretty,
+            "{\n  \"a\": \"s\",\n  \"b\": [\n    1,\n    {\n      \"x\": null\n    }\n  ],\n  \"e\": [],\n  \"o\": {}\n}\n"
+        );
+        assert_eq!(parse(&pretty).unwrap(), v);
     }
 }

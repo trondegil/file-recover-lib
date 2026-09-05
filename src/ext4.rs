@@ -21,6 +21,14 @@
 //! journaled copies of inode-table blocks, and when a deleted file's live inode
 //! has no usable block map it recovers the data from the journaled inode.
 //!
+//! The journal is also where the **names** come from on a modern kernel. The
+//! real-image corpus showed Linux 6.x/7.x zeroing a directory entry when the
+//! file is unlinked, so the slack-space scan finds nothing at all. Older copies
+//! of the directory blocks in the journal still list the file, so every
+//! directory's journaled copies are parsed alongside its live blocks. A
+//! directory that was itself deleted (a folder tree removed recursively) is
+//! followed the same way, from its journaled inode and journaled blocks.
+//!
 //! ## What this cannot do
 //!
 //! If neither the live inode nor any journaled copy has an intact block map (the
@@ -450,13 +458,14 @@ impl Volume {
         out_dir: &Path,
         opts: &RecoverOptions,
     ) -> Result<RecoverStats> {
-        let mut found: BTreeMap<u32, (PathBuf, u64)> = BTreeMap::new();
-        self.walk(src, &mut found)?;
-
         // Journaled copies of inode-table blocks let us recover files whose live
-        // inode had its extent tree zeroed on deletion. Best effort: an empty
-        // map just means we rely on the live inode.
-        let journal = self.build_journal_map(src).unwrap_or_default();
+        // inode had its extent tree zeroed on deletion, and journaled copies of
+        // directory blocks still name files whose entries were zeroed. Best
+        // effort: an empty index just means we rely on what is live on disk.
+        let journal = self.build_journal_index(src).unwrap_or_default();
+
+        let mut found: BTreeMap<u32, (PathBuf, u64)> = BTreeMap::new();
+        self.walk(src, &journal, &mut found)?;
 
         let mut stats = RecoverStats::default();
         let volume_bytes = self.total_blocks.saturating_mul(self.block_size);
@@ -501,22 +510,20 @@ impl Volume {
 
     /// Pick the inode bytes to recover from: the live inode if it still has a
     /// usable block map, otherwise a journaled copy that does.
-    fn choose_inode(
-        &self,
-        src: &Source,
-        journal: &HashMap<u64, Vec<Vec<u8>>>,
-        ino: u32,
-    ) -> Option<Vec<u8>> {
+    fn choose_inode(&self, src: &Source, journal: &JournalIndex, ino: u32) -> Option<Vec<u8>> {
         if let Ok(Some(live)) = self.read_inode(src, ino) {
             if inode_has_blockmap(&live) {
                 return Some(live);
             }
         }
-        self.journaled_inode(journal, ino)
+        self.journaled_inode(src, journal, ino)
     }
 
-    /// Look up a journaled copy of inode `ino` whose block map survived.
-    fn journaled_inode(&self, journal: &HashMap<u64, Vec<Vec<u8>>>, ino: u32) -> Option<Vec<u8>> {
+    /// Look up a journaled copy of inode `ino` whose block map survived. When
+    /// several do, the one with the latest change time wins (ties go to the
+    /// later position in the journal): an inode number is reused, so an older
+    /// copy may describe a different, earlier file that had the same number.
+    fn journaled_inode(&self, src: &Source, journal: &JournalIndex, ino: u32) -> Option<Vec<u8>> {
         if ino == 0 {
             return None;
         }
@@ -528,32 +535,44 @@ impl Volume {
             .saturating_add(index.saturating_mul(self.inode_size));
         let fs_block = byte / self.block_size;
         let within = (byte % self.block_size) as usize;
-        let copies = journal.get(&fs_block)?;
-        for copy in copies {
+        let mut best: Option<(u32, Vec<u8>)> = None;
+        for copy in self.journaled_copies(src, journal, fs_block) {
             if within + self.inode_size as usize <= copy.len() {
                 let inode = copy[within..within + self.inode_size as usize].to_vec();
                 if inode_has_blockmap(&inode) {
-                    return Some(inode);
+                    let ctime = inode_ctime(&inode);
+                    if best.as_ref().map(|(c, _)| ctime >= *c).unwrap_or(true) {
+                        best = Some((ctime, inode));
+                    }
                 }
             }
         }
-        None
+        best.map(|(_, i)| i)
     }
 
-    /// Block ranges (start, count) covering every group's inode table.
-    fn inode_table_ranges(&self) -> Vec<(u64, u64)> {
-        let blocks_per_table =
-            (self.inodes_per_group as u64 * self.inode_size).div_ceil(self.block_size);
-        self.inode_tables
-            .iter()
-            .map(|&start| (start, blocks_per_table))
-            .collect()
+    /// Every journaled copy of filesystem block `fs_block`, oldest first.
+    fn journaled_copies(
+        &self,
+        src: &Source,
+        journal: &JournalIndex,
+        fs_block: u64,
+    ) -> Vec<Vec<u8>> {
+        journal
+            .get(&fs_block)
+            .map(|phys| {
+                phys.iter()
+                    .filter_map(|&p| self.read_block(src, p).ok())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    /// Scan the jbd2 journal and collect journaled copies of inode-table blocks,
-    /// keyed by filesystem block number (a block may have several copies).
-    fn build_journal_map(&self, src: &Source) -> Result<HashMap<u64, Vec<Vec<u8>>>> {
-        let mut map: HashMap<u64, Vec<Vec<u8>>> = HashMap::new();
+    /// Scan the jbd2 journal and index every journaled block copy by the
+    /// filesystem block it is a copy of (a block may have several). Only the
+    /// positions are kept; contents are read on demand, so the index stays
+    /// small however large the journal is.
+    fn build_journal_index(&self, src: &Source) -> Result<JournalIndex> {
+        let mut map: JournalIndex = HashMap::new();
 
         // The journal is itself a file; its live inode must be readable.
         let jinode = match self.read_inode(src, self.journal_inum)? {
@@ -581,9 +600,6 @@ impl Volume {
         let maxlen = (be32(&sb, 0x10) as u64).min(n_blocks);
         let first = be32(&sb, 0x14) as u64;
 
-        let ranges = self.inode_table_ranges();
-        let interesting = |blk: u64| ranges.iter().any(|&(s, c)| blk >= s && blk < s + c);
-
         let mut ji = first.max(1);
         let mut steps = 0u64;
         // Reused across the scan; only the descriptor-named data blocks (kept in
@@ -607,19 +623,30 @@ impl Volume {
                 if (data_ji as usize) >= jblocks.len() {
                     break;
                 }
-                if interesting(blocknr) {
-                    let content = self.read_block(src, jblocks[data_ji as usize])?;
-                    map.entry(blocknr).or_default().push(content);
-                }
+                map.entry(blocknr)
+                    .or_default()
+                    .push(jblocks[data_ji as usize]);
             }
             ji += 1 + tags.len() as u64;
         }
         Ok(map)
     }
 
-    /// Walk live directories from root, collecting deleted regular files keyed
-    /// by inode (so multiple stale links don't duplicate).
-    fn walk(&self, src: &Source, found: &mut BTreeMap<u32, (PathBuf, u64)>) -> Result<()> {
+    /// Walk directories from root, collecting deleted regular files keyed by
+    /// inode (so multiple stale links don't duplicate).
+    ///
+    /// Each directory's entries come from its live blocks (including stale
+    /// entries in their slack) *and* from every journaled copy of those
+    /// blocks, which is where the names survive when the kernel zeroes deleted
+    /// entries. A directory whose own inode is deleted is read through its
+    /// journaled inode and journaled blocks, so a folder tree removed in one go
+    /// is recovered with its paths.
+    fn walk(
+        &self,
+        src: &Source,
+        journal: &JournalIndex,
+        found: &mut BTreeMap<u32, (PathBuf, u64)>,
+    ) -> Result<()> {
         let mut visited: HashSet<u32> = HashSet::new();
         let mut stack: Vec<(u32, PathBuf, usize)> = vec![(ROOT_INODE, PathBuf::new(), 0)];
 
@@ -627,20 +654,37 @@ impl Volume {
             if !visited.insert(dir_ino) {
                 continue;
             }
+            // A live directory's inode has its block map; a deleted one's was
+            // zeroed, so use the journaled copy from before the deletion.
             let inode = match self.read_inode(src, dir_ino) {
-                Ok(Some(i)) => i,
-                _ => continue,
+                Ok(Some(i)) if inode_mode(&i) & MODE_FMT == MODE_DIR && inode_has_blockmap(&i) => i,
+                _ => match self.journaled_inode(src, journal, dir_ino) {
+                    Some(i) if inode_mode(&i) & MODE_FMT == MODE_DIR => i,
+                    _ => continue,
+                },
             };
-            if inode_mode(&inode) & MODE_FMT != MODE_DIR {
-                continue;
+            let size = dir_size(&inode);
+            let mut entries = match self.read_file_data(src, &inode, size) {
+                Ok(d) => self.parse_dir_block(&d),
+                Err(_) => Vec::new(),
+            };
+            if !journal.is_empty() {
+                // Newest copies first: a name seen in an older copy may belong
+                // to an earlier file whose inode number was since reused, and
+                // the first name seen for an inode is the one kept.
+                let n_blocks = size.div_ceil(self.block_size);
+                if let Ok(blocks) = self.map_blocks(src, &inode, n_blocks) {
+                    for b in blocks.into_iter().filter(|&b| b != 0) {
+                        for copy in self.journaled_copies(src, journal, b).iter().rev() {
+                            entries.extend(self.parse_dir_block(copy));
+                        }
+                    }
+                }
             }
-            // The directory is live, so its block map is intact.
-            let data = match self.read_file_data(src, &inode, dir_size(&inode)) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
+            let mut seen: HashSet<(u32, String)> = HashSet::new();
+            entries.retain(|e| seen.insert((e.ino, e.name.clone())));
 
-            for entry in self.parse_dir_block(&data) {
+            for entry in entries {
                 if entry.name == "." || entry.name == ".." || entry.ino == 0 {
                     continue;
                 }
@@ -651,7 +695,7 @@ impl Volume {
                 let mode = inode_mode(&child);
                 let deleted = inode_links(&child) == 0 || inode_dtime(&child) != 0;
 
-                if mode & MODE_FMT == MODE_DIR && !deleted {
+                if mode & MODE_FMT == MODE_DIR {
                     if depth < MAX_DIR_DEPTH {
                         stack.push((
                             entry.ino,
@@ -925,6 +969,10 @@ impl Volume {
     }
 }
 
+/// Journal index: filesystem block number -> physical blocks (inside the
+/// journal file) holding journaled copies of it, oldest first.
+type JournalIndex = HashMap<u64, Vec<u64>>;
+
 struct DirEntry {
     ino: u32,
     name: String,
@@ -944,6 +992,9 @@ fn inode_atime(inode: &[u8]) -> u32 {
 }
 fn inode_mtime(inode: &[u8]) -> u32 {
     u32::from_le_bytes([inode[0x10], inode[0x11], inode[0x12], inode[0x13]])
+}
+fn inode_ctime(inode: &[u8]) -> u32 {
+    u32::from_le_bytes([inode[0x0C], inode[0x0D], inode[0x0E], inode[0x0F]])
 }
 fn inode_flags(inode: &[u8]) -> u32 {
     u32::from_le_bytes([inode[0x20], inode[0x21], inode[0x22], inode[0x23]])
@@ -979,7 +1030,12 @@ fn inode_has_blockmap(inode: &[u8]) -> bool {
     }
     let i_block = &inode[0x28..0x28 + 60];
     if inode_flags(inode) & FLAG_EXTENTS != 0 {
+        // A deleted inode keeps the extent header but with zero entries: that
+        // is not a usable map. The real-image corpus found every deleted file
+        // on a kernel-made ext4 volume "unrecoverable" because the empty live
+        // header was preferred over the journaled copy with the extents.
         u16::from_le_bytes([i_block[0], i_block[1]]) == EXTENT_MAGIC
+            && u16::from_le_bytes([i_block[2], i_block[3]]) > 0
     } else {
         i_block.iter().any(|&b| b != 0)
     }
@@ -1039,22 +1095,7 @@ fn parse_journal_tags(block: &[u8], csum_v3: bool, is_64bit: bool) -> Vec<u64> {
 }
 
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    crate::recover::sanitize_component(name)
 }
 
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
@@ -1143,8 +1184,12 @@ mod tests {
         // EXTENTS flag set but no extent magic => unusable.
         inode[0x20..0x24].copy_from_slice(&FLAG_EXTENTS.to_le_bytes());
         assert!(!inode_has_blockmap(&inode));
-        // ...with the extent magic => usable.
+        // ...with the extent magic but zero entries (what a deleted inode
+        // keeps) => still unusable.
         inode[0x28..0x2A].copy_from_slice(&EXTENT_MAGIC.to_le_bytes());
+        assert!(!inode_has_blockmap(&inode));
+        // ...with one extent entry => usable.
+        inode[0x2A..0x2C].copy_from_slice(&1u16.to_le_bytes());
         assert!(inode_has_blockmap(&inode));
 
         // Indirect (no extents) with a non-zero block pointer => usable.

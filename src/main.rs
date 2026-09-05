@@ -697,6 +697,10 @@ fn list_types() {
         (Category::Executable, "EXECUTABLE"),
         (Category::Font, "FONT"),
         (Category::System, "SYSTEM"),
+        (
+            Category::Volume,
+            "VOLUME (filesystem images; not in the default set, ask with --type volume)",
+        ),
         (Category::Other, "OTHER"),
     ];
 

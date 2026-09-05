@@ -30,8 +30,10 @@ fn make_ttc() -> Vec<u8> {
                                                // Font directory at offset 16.
     v.extend_from_slice(&[0x00, 0x01, 0x00, 0x00]); // sfnt version
     v.extend_from_slice(&1u16.to_be_bytes()); // numTables
-    v.extend_from_slice(&[0u8; 6]); // searchRange/entrySelector/rangeShift
-                                    // One table record at offset 28: data at offset 44, length 12.
+    v.extend_from_slice(&16u16.to_be_bytes()); // searchRange = 16 * 2^floor(log2 1)
+    v.extend_from_slice(&0u16.to_be_bytes()); // entrySelector = floor(log2 1)
+    v.extend_from_slice(&0u16.to_be_bytes()); // rangeShift = 1*16 - searchRange
+                                              // One table record at offset 28: data at offset 44, length 12.
     v.extend_from_slice(b"cmap");
     v.extend_from_slice(&0u32.to_be_bytes()); // checksum
     v.extend_from_slice(&44u32.to_be_bytes()); // offset

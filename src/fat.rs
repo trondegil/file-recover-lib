@@ -470,36 +470,62 @@ impl Volume {
         Ok((df.size as u64 - remaining, digest))
     }
 
-    /// Walk live directories (starting at the root), collecting deleted files
-    /// with their reconstructed relative paths.
+    /// Walk directories (starting at the root), collecting deleted files with
+    /// their reconstructed relative paths.
+    ///
+    /// Deleted directories are descended too: removing a folder tree marks
+    /// its entries deleted and then the folder's own entry, but the folder's
+    /// cluster still holds those entries until it is reused. Windows goes one
+    /// step further and discards the children's deletion markers along with
+    /// the folder's cluster, so inside a deleted folder every entry counts as
+    /// deleted whether or not it carries the marker. A deleted folder's
+    /// cluster is only trusted when it still starts with the `.` entry every
+    /// FAT subdirectory carries, so a cluster since reused for file data is
+    /// not read as a directory. The real-image corpus found both behaviours.
     fn walk(&self, src: &Source, out: &mut Vec<DeletedFile>) -> Result<()> {
         let mut visited: HashSet<u32> = HashSet::new();
-        // Stack of (directory location, path-so-far, depth).
-        let mut stack: Vec<(DirLoc, PathBuf, usize)> =
-            vec![(self.root_location(), PathBuf::new(), 0)];
+        // Stack of (directory location, its cluster, path-so-far, depth,
+        // whether the directory itself is deleted).
+        let root_cluster = match self.root_location() {
+            DirLoc::Cluster(c) => c,
+            DirLoc::RootRegion => 0,
+        };
+        let mut stack: Vec<(DirLoc, u32, PathBuf, usize, bool)> =
+            vec![(self.root_location(), root_cluster, PathBuf::new(), 0, false)];
 
-        while let Some((loc, path, depth)) = stack.pop() {
+        while let Some((loc, dir_cluster, path, depth, deleted_dir)) = stack.pop() {
             let bytes = match self.read_directory(src, loc, &mut visited) {
                 Ok(b) => b,
                 Err(_) => continue,
             };
+            if deleted_dir && !starts_with_dot_entry(&bytes) {
+                continue;
+            }
             for entry in parse_entries(&bytes) {
-                if entry.is_dir && !entry.deleted {
-                    if entry.name == "." || entry.name == ".." {
-                        continue;
-                    }
+                if entry.is_dir && (entry.name == "." || entry.name == "..") {
+                    continue;
+                }
+                let gone = entry.deleted || deleted_dir;
+                // An entry Windows deleted on FAT32 has lost the high half of
+                // its start cluster; find the cluster again before using it.
+                let start = if entry.deleted {
+                    self.resolve_start_cluster(src, &entry, dir_cluster)?
+                } else {
+                    entry.start_cluster
+                };
+                if entry.is_dir {
                     if depth < MAX_DIR_DEPTH
-                        && entry.start_cluster >= 2
-                        && entry.start_cluster <= self.max_valid_cluster()
-                        && !visited.contains(&entry.start_cluster)
+                        && start >= 2
+                        && start <= self.max_valid_cluster()
+                        && !visited.contains(&start)
                     {
                         let child = path.join(sanitize_component(&entry.name));
-                        stack.push((DirLoc::Cluster(entry.start_cluster), child, depth + 1));
+                        stack.push((DirLoc::Cluster(start), start, child, depth + 1, gone));
                     }
-                } else if !entry.is_dir && entry.deleted {
+                } else if gone {
                     out.push(DeletedFile {
                         path: path.join(sanitize_component(&entry.name)),
-                        start_cluster: entry.start_cluster,
+                        start_cluster: start,
                         size: entry.size,
                         mtime: entry.mtime,
                         atime: entry.atime,
@@ -508,6 +534,109 @@ impl Volume {
             }
         }
         Ok(())
+    }
+
+    /// The raw FAT32 entry for `cluster` (0 = free), or `None` past the FAT.
+    fn fat32_entry(&self, src: &Source, cluster: u32) -> Result<Option<u32>> {
+        let fat_base = self.offset + self.reserved_sectors as u64 * self.bytes_per_sector as u64;
+        let mut b = [0u8; 4];
+        if src.read_at(fat_base + cluster as u64 * 4, &mut b)? < 4 {
+            return Ok(None);
+        }
+        Ok(Some(u32::from_le_bytes(b) & 0x0FFF_FFFF))
+    }
+
+    /// Windows zeroes the high 16 bits of the start cluster when it deletes a
+    /// FAT32 entry, so on a volume with more than 65,536 clusters a deleted
+    /// file's location is ambiguous: the low half plus any high half that
+    /// lands on a valid cluster. The real-image corpus found every deleted
+    /// file past cluster 65,535 coming back as the wrong data.
+    ///
+    /// Candidates are narrowed to clusters the FAT says are free (a deleted
+    /// file's are, unless reused). For a directory, the right one starts with
+    /// a `.` entry naming that same cluster. For a file, the candidate whose
+    /// first bytes identify as the type its name claims wins; failing that,
+    /// the one with the longest free run ahead of it (a deleted file is
+    /// usually still contiguous), then the one nearest its parent directory.
+    fn resolve_start_cluster(
+        &self,
+        src: &Source,
+        entry: &ParsedEntry,
+        parent_cluster: u32,
+    ) -> Result<u32> {
+        let lo = entry.start_cluster;
+        let max = self.max_valid_cluster();
+        if !matches!(self.fat_type, FatType::Fat32) || max <= 0xFFFF || lo >> 16 != 0 || lo < 2 {
+            return Ok(lo);
+        }
+        let mut candidates = Vec::new();
+        for hi in 0..=(max >> 16) {
+            let c = lo | (hi << 16);
+            if c <= max && self.fat32_entry(src, c)? == Some(0) {
+                candidates.push(c);
+            }
+        }
+        if candidates.len() <= 1 {
+            return Ok(candidates.first().copied().unwrap_or(lo));
+        }
+
+        if entry.is_dir {
+            let mut head = [0u8; ENTRY_SIZE];
+            for &c in &candidates {
+                if src.read_at(self.cluster_offset(c), &mut head)? == ENTRY_SIZE
+                    && starts_with_dot_entry(&head)
+                {
+                    let own = (u16::from_le_bytes([head[20], head[21]]) as u32) << 16
+                        | u16::from_le_bytes([head[26], head[27]]) as u32;
+                    if own == c {
+                        return Ok(c);
+                    }
+                }
+            }
+            return Ok(lo);
+        }
+
+        let ext = entry
+            .name
+            .rsplit_once('.')
+            .map(|(_, e)| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        let mut head = vec![0u8; (self.cluster_bytes() as usize).min(4096)];
+        let mut typed = Vec::new();
+        for &c in &candidates {
+            let n = src.read_at(self.cluster_offset(c), &mut head)?;
+            if let Some(det) = crate::identify::identify(&head[..n]) {
+                if !ext.is_empty() && det.ext.eq_ignore_ascii_case(&ext) {
+                    typed.push(c);
+                }
+            }
+        }
+        if typed.len() == 1 {
+            return Ok(typed[0]);
+        }
+        let pool = if typed.is_empty() {
+            &candidates
+        } else {
+            &typed
+        };
+        // Enough of the run to tell candidates apart, without walking a huge
+        // file's whole FAT range for each.
+        let needed = ((entry.size as u64).div_ceil(self.cluster_bytes()).max(1) as u32).min(4096);
+        let mut best: Option<((u32, std::cmp::Reverse<u32>), u32)> = None;
+        for &c in pool {
+            let mut run = 0u32;
+            while run < needed
+                && c.checked_add(run).is_some_and(|x| x <= max)
+                && self.fat32_entry(src, c + run)? == Some(0)
+            {
+                run += 1;
+            }
+            let key = (run, std::cmp::Reverse(c.abs_diff(parent_cluster)));
+            if best.map(|(k, _)| key > k).unwrap_or(true) {
+                best = Some((key, c));
+            }
+        }
+        Ok(best.map(|(_, c)| c).unwrap_or(lo))
     }
 
     fn root_location(&self) -> DirLoc {
@@ -561,6 +690,14 @@ impl Volume {
             }
         }
     }
+}
+
+/// Whether directory bytes begin with the `.` self-entry (short name `.` padded
+/// with spaces, directory attribute), as every FAT subdirectory's first slot
+/// does. Deleted directories keep it, since only the parent's entry for the
+/// folder gets the deletion marker.
+fn starts_with_dot_entry(bytes: &[u8]) -> bool {
+    bytes.len() >= ENTRY_SIZE && &bytes[0..11] == b".          " && bytes[11] & ATTR_DIRECTORY != 0
 }
 
 #[derive(Clone, Copy)]
@@ -656,8 +793,19 @@ fn short_name(slot: &[u8], deleted: bool) -> String {
         // 0x05 stands in for a real leading 0xE5 byte.
         base[0] = 0xE5;
     }
-    let name: String = String::from_utf8_lossy(&base).trim_end().to_string();
-    let ext: String = String::from_utf8_lossy(&slot[8..11]).trim_end().to_string();
+    let mut name: String = String::from_utf8_lossy(&base).trim_end().to_string();
+    let mut ext: String = String::from_utf8_lossy(&slot[8..11]).trim_end().to_string();
+    // Windows stores an all-lowercase base or extension without a long-name
+    // entry, flagging the case in the reserved byte (`jpg-000.jpg` on disk is
+    // `JPG-000 JPG` plus 0x18). Honour the flags so the name comes back as
+    // the user wrote it.
+    let case_flags = slot[12];
+    if case_flags & 0x08 != 0 {
+        name = name.to_ascii_lowercase();
+    }
+    if case_flags & 0x10 != 0 {
+        ext = ext.to_ascii_lowercase();
+    }
     if ext.is_empty() {
         name
     } else {
@@ -698,22 +846,7 @@ fn assemble_lfn(parts: &[String]) -> String {
 
 /// Make a single path component safe to write to disk.
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    crate::recover::sanitize_component(name)
 }
 
 /// Build a non-colliding output path by appending a counter if needed.
@@ -776,6 +909,18 @@ mod tests {
         del[0] = DELETED_MARKER;
         // The lost first character is shown as '_'.
         assert_eq!(short_name(&del, true), "_HOTO.JPG");
+    }
+
+    #[test]
+    fn short_name_honours_windows_case_flags() {
+        let mut slot = [b' '; 32];
+        slot[0..11].copy_from_slice(b"JPG-000 JPG");
+        slot[12] = 0x18; // lowercase base and extension
+        assert_eq!(short_name(&slot, false), "jpg-000.jpg");
+        slot[12] = 0x08; // lowercase base only
+        assert_eq!(short_name(&slot, false), "jpg-000.JPG");
+        slot[12] = 0x10; // lowercase extension only
+        assert_eq!(short_name(&slot, true), "_PG-000.jpg");
     }
 
     #[test]

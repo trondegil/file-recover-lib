@@ -9,11 +9,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The whole suite on every platform we ship for. Cross-compiling a binary
+  # proves it links, not that it works: positioned reads, path handling, and
+  # filename sanitising all differ by OS.
   build-test:
-    name: fmt + clippy + test
-    runs-on: ubuntu-latest
+    name: fmt + clippy + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install rustfmt and clippy
         run: rustup component add rustfmt clippy
@@ -32,3 +41,35 @@ jobs:
       # rotting.
       - name: Clippy with dhat-heap feature
         run: cargo clippy --features dhat-heap --example heap_profile -- -D warnings
+
+  # Real-image corpus (corpus/README.md): undelete and scan every image built by
+  # a real OS and fail if recall on any of them drops below its baseline. The
+  # images come from a release tarball pinned in corpus/corpus.lock and are
+  # cached on that file's hash. Until a tarball is published the test skips.
+  corpus:
+    name: real-image corpus (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore corpus images
+        uses: actions/cache@v4
+        with:
+          path: corpus/images
+          key: corpus-${{ hashFiles('corpus/corpus.lock') }}
+
+      - name: Run corpus test
+        shell: bash
+        run: |
+          if grep -q '"url": "https://' corpus/corpus.lock; then
+            export UNEARTH_CORPUS_REQUIRED=1
+          else
+            echo "::warning::corpus tarball not published yet (corpus/publish.sh); the corpus test will skip"
+          fi
+          cargo test --release --test corpus_test -- --ignored --nocapture

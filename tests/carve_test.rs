@@ -205,3 +205,157 @@ fn footer_search_terminates_without_a_footer() {
     let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
     assert_eq!(stats.files_recovered, 0, "no footer => nothing recovered");
 }
+
+/// The PDF footer allowance is for a line ending after `%%EOF`. Only CR/LF
+/// bytes may be absorbed; whatever follows the file on disk must not be, or the
+/// carved bytes (and their hash) differ from the original. Found by the
+/// real-image corpus.
+#[test]
+fn pdf_footer_absorbs_only_a_line_ending() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path: PathBuf = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    let bare = b"%PDF-1.4\n1 0 obj\n<< >>\nendobj\n%%EOF".to_vec();
+    let mut lf = bare.clone();
+    lf.push(b'\n');
+    let mut crlf = bare.clone();
+    crlf.extend_from_slice(b"\r\n");
+
+    let mut img = std::fs::File::create(&img_path).unwrap();
+    for pdf in [&bare, &lf, &crlf] {
+        img.write_all(pdf).unwrap();
+        // Non-line-ending bytes right after each file, then padding.
+        img.write_all(b"XYZ").unwrap();
+        img.write_all(&filler(7, 4096)).unwrap();
+    }
+    drop(img);
+
+    let source = Source::open(&img_path).unwrap();
+    let sigs = signatures::select(&["pdf".to_string()]).unwrap();
+    let opts = CarveOptions {
+        output_dir: out_dir.clone(),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size: None,
+        max_files: None,
+        allow_nested: false,
+        validate: true,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run: false,
+        align: 1,
+    };
+    let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 3);
+
+    let mut recovered: Vec<Vec<u8>> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+        .collect();
+    recovered.sort();
+    let mut originals = vec![bare, lf, crlf];
+    originals.sort();
+    assert_eq!(
+        recovered, originals,
+        "each PDF must end exactly where it did"
+    );
+}
+
+/// A run of little-endian counting `u16`s (an exFAT up-case table, or any
+/// identity lookup table) begins `00 00 01 00`, which is the ICO magic. The
+/// directory entries that follow have impossible plane/bit-depth values and
+/// point at data that is not a DIB or PNG, so it must not carve — on a real
+/// exFAT card it came out as a 2 MiB "icon" that hid every file after it.
+#[test]
+fn counting_table_is_not_an_icon() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path: PathBuf = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    let mut img: Vec<u8> = Vec::new();
+    for i in 0..0x10000u32 {
+        img.extend_from_slice(&(i as u16).to_le_bytes());
+    }
+    // A real file behind the table that a false icon would swallow.
+    let jpeg = make_jpeg(&filler(4, 3000));
+    img.extend_from_slice(&jpeg);
+    img.extend_from_slice(&filler(5, 2048));
+    std::fs::write(&img_path, &img).unwrap();
+
+    let source = Source::open(&img_path).unwrap();
+    let sigs = signatures::select(&["ico".to_string(), "jpg".to_string()]).unwrap();
+    let opts = CarveOptions {
+        output_dir: out_dir.clone(),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size: None,
+        max_files: None,
+        allow_nested: false,
+        validate: true,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run: false,
+        align: 1,
+    };
+    let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 1, "only the JPEG should carve");
+    let recovered: Vec<Vec<u8>> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+        .collect();
+    assert_eq!(recovered, vec![jpeg]);
+}
+
+/// The bytes an HFS+ journal header starts with (`00 01 00 00` then small
+/// counters) are the TrueType magic followed by a nonsense table directory.
+/// The binary-search fields do not match the table count, so it must not
+/// carve — on a real Mac volume it came out as a 42 MiB "font" hiding
+/// everything behind it.
+#[test]
+fn journal_header_is_not_a_font() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path: PathBuf = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    let mut img: Vec<u8> = vec![
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x01, 0x10, 0x00, 0x02, 0x04, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x7e,
+        0x00, 0x00,
+    ];
+    img.resize(4096, 0);
+    let jpeg = make_jpeg(&filler(6, 3000));
+    img.extend_from_slice(&jpeg);
+    img.extend_from_slice(&filler(8, 4096));
+    std::fs::write(&img_path, &img).unwrap();
+
+    let source = Source::open(&img_path).unwrap();
+    let sigs = signatures::select(&["ttf".to_string(), "jpg".to_string()]).unwrap();
+    let opts = CarveOptions {
+        output_dir: out_dir.clone(),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size: None,
+        max_files: None,
+        allow_nested: false,
+        validate: true,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run: false,
+        align: 1,
+    };
+    let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 1, "only the JPEG should carve");
+}

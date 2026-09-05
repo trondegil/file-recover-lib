@@ -1,0 +1,171 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497532,
+      "path": "full/bmp-012.bmp",
+      "sha256": "ebdcec35193ed42061138db0b433c2be8378f0c56d53c8ebef09a822859416f2",
+      "size": 815093
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710498447,
+      "path": "full/bmp-027.bmp",
+      "sha256": "e8845b4c4926f4308fdb94cf0fe8e58a1cdd35093e1a92d8ae869ecb71b98467",
+      "size": 726383
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710499362,
+      "path": "full/bmp-042.bmp",
+      "sha256": "44289634ed60a4cedc3e88681fb4d9424f9557440dcf987974adbf3c0e5173a8",
+      "size": 1071833
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496800,
+      "path": "full/jpg-000.jpg",
+      "sha256": "2a273744c1665b3dd012546b2e509497f8fbad103965506cd663db8aab702745",
+      "size": 1020513
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497715,
+      "path": "full/jpg-015.jpg",
+      "sha256": "44e63c1aa2fb8fe1b4d7d2dea063d86d106cc83a75d2e7620c9b4b1f551c7b76",
+      "size": 843691
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710498630,
+      "path": "full/jpg-030.jpg",
+      "sha256": "54704be30029200a6522c89e74d2d47875f639f07398e62983035047b81bf5c4",
+      "size": 1081309
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710499545,
+      "path": "full/jpg-045.jpg",
+      "sha256": "2071f0614b2a5c14ae9c0b3b4b3278eadeeff286c66c40d032b2e932977f735d",
+      "size": 778785
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496983,
+      "path": "full/pdf-003.pdf",
+      "sha256": "242bc5c58ed3833a570fba58c3594d8b451c21d852a4e98877695c6208fd280e",
+      "size": 1020631
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497898,
+      "path": "full/pdf-018.pdf",
+      "sha256": "7e891adcefe57cad42b2fe34edc27253594c85df9bcbd934a31b2011c8951f6d",
+      "size": 1072751
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710498813,
+      "path": "full/pdf-033.pdf",
+      "sha256": "266b48b50b93c1f524c84fd8eef7d859b72162f7d2c9561e2e024c7071de6791",
+      "size": 983641
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710499728,
+      "path": "full/pdf-048.pdf",
+      "sha256": "7406f43fbeb0f9156e3ea0542c9f19dec5e7ae2c3af52cfa0946107207ff668a",
+      "size": 674547
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497166,
+      "path": "full/png-006.png",
+      "sha256": "9e2abb9b34ec38614715a59f84c5edbb17be2db966a75b13cfe96b889f653158",
+      "size": 1105551
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710498081,
+      "path": "full/png-021.png",
+      "sha256": "dabbb229d78d1f3ca190f384d4194df22fbe40daec4ddf13c06944c7289f3926",
+      "size": 707497
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710498996,
+      "path": "full/png-036.png",
+      "sha256": "dde19f45a676196bb94dc43e54d2ca49949951c7585192d5729d86f4211d6ea5",
+      "size": 640227
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710499911,
+      "path": "full/png-051.png",
+      "sha256": "c7354ea13b3c608dabb26fa2169797fb297a14458d5f6b3122f26a93c64064c8",
+      "size": 931825
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710497349,
+      "path": "full/wav-009.wav",
+      "sha256": "9e1338bb35944eaf85b8625e5c478af0cdf3c0963366c573b2488375470c64e7",
+      "size": 672005
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710498264,
+      "path": "full/wav-024.wav",
+      "sha256": "a6fd002b24104e87cc1087aebb468be24dd6008fc17d9eed7b95fae5cce5f1ee",
+      "size": 955165
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710499179,
+      "path": "full/wav-039.wav",
+      "sha256": "e030c85c8f5035b57c61357d3fd6db747556e54debde2ed9b6570098e2931545",
+      "size": 809459
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710500094,
+      "path": "full/wav-054.wav",
+      "sha256": "fb9448a545ad771e1391bdc737c62f4d0e25195b3f3fda26dde23fa02320ac0c",
+      "size": 634307
+    }
+  ],
+  "filesystem": "ntfs",
+  "image": {
+    "file": "windows-ntfs-nearlyfull.vhd",
+    "sha256": "9e816de71bc127a8b4fc873ebf53048f2f002ee12c445425796896d0f05cca2d",
+    "size": 67109376
+  },
+  "live_files": 38,
+  "name": "windows-ntfs-nearlyfull",
+  "platform": "windows",
+  "scenario": "nearlyfull",
+  "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
+}

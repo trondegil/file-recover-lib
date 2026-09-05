@@ -1,0 +1,43 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "maybe",
+      "mtime": 1710496800,
+      "path": "old-photo.jpg",
+      "sha256": "6a840626509f4b8f79f69e63b2265fc900a203d67a58d1344ce9706ed6c30473",
+      "size": 3145729
+    },
+    {
+      "carvable": true,
+      "expect": "maybe",
+      "mtime": 1710496861,
+      "path": "old-report.pdf",
+      "sha256": "e4a24ed7738df55de7eba8b2899b063026ebbe9ec6fff4dda0ce20851aedbd41",
+      "size": 2097155
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496922,
+      "path": "survivor.png",
+      "sha256": "b54b492d495191523edc8431b1bce22514cbc6991bd96930035c0f0767fe0eec",
+      "size": 512005
+    }
+  ],
+  "filesystem": "ntfs",
+  "image": {
+    "file": "windows-ntfs-overwritten.vhd",
+    "sha256": "cc64607dea6af4f69ebe81bbb044f8dd3917710a614dfdb00756ca6bcc82f77d",
+    "size": 67109376
+  },
+  "live_files": 64,
+  "name": "windows-ntfs-overwritten",
+  "platform": "windows",
+  "scenario": "overwritten",
+  "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
+}

@@ -1,0 +1,43 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "maybe",
+      "mtime": 1710496800,
+      "path": "old-photo.jpg",
+      "sha256": "6a840626509f4b8f79f69e63b2265fc900a203d67a58d1344ce9706ed6c30473",
+      "size": 3145729
+    },
+    {
+      "carvable": true,
+      "expect": "maybe",
+      "mtime": 1710496861,
+      "path": "old-report.pdf",
+      "sha256": "e4a24ed7738df55de7eba8b2899b063026ebbe9ec6fff4dda0ce20851aedbd41",
+      "size": 2097155
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496922,
+      "path": "survivor.png",
+      "sha256": "b54b492d495191523edc8431b1bce22514cbc6991bd96930035c0f0767fe0eec",
+      "size": 512005
+    }
+  ],
+  "filesystem": "ext4",
+  "image": {
+    "file": "linux-ext4-overwritten.img",
+    "sha256": "b0a8e576d4c0202ef7a6eee852d728f8c820d4e2f7a76152bd3270b1f12f9413",
+    "size": 67108864
+  },
+  "live_files": 64,
+  "name": "linux-ext4-overwritten",
+  "platform": "linux",
+  "scenario": "overwritten",
+  "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
+}

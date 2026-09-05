@@ -692,11 +692,21 @@ unearth scan card.img -o recovered --type jpg --type png
 ```
 
 `--type` also accepts a *category* to select a whole class at once —
-`image`, `audio`, `video`, `document`, `archive`, `executable`, `font`, or
-`system`:
+`image`, `audio`, `video`, `document`, `archive`, `executable`, `font`,
+`system`, or `volume`:
 
 ```sh
 unearth scan card.img -o recovered --type image
+```
+
+`volume` covers whole filesystem images (NTFS, exFAT, HFS+, APFS, btrfs, XFS,
+and the rest) and is the one category **not** included by default: a default
+scan of a disk would otherwise copy each partition wholesale, when it is the
+files inside that you want. Ask for it explicitly to carve a lost partition
+out of a larger image:
+
+```sh
+unearth scan disk.img -o recovered --type ntfs      # or --type volume
 ```
 
 `scan` options:
@@ -1001,6 +1011,28 @@ previous run; the dhat example writes `dhat-heap.json` for the
 [dh_view](https://nnethercote.github.io/dh_view/dh_view.html) allocation viewer.
 The numbers above are indicative micro-benchmark figures and depend on hardware.
 
+## Reading a physical drive
+
+Point any command at the device itself. The source is only ever opened
+read-only, and its size is found even when the OS will not report one.
+
+| Platform | Device | Needs |
+|---|---|---|
+| Linux | `/dev/sdb`, `/dev/mmcblk0`, `/dev/nvme0n1` | root, or membership in the `disk` group (`sudo usermod -aG disk $USER`, then log in again) |
+| macOS | `/dev/rdisk2` (the `r` matters: the raw device is several times faster than `/dev/disk2`) | `sudo`; if that still fails, give your terminal Full Disk Access in System Settings > Privacy & Security |
+| Windows | `\\.\PhysicalDrive1` for a whole disk, `\\.\D:` for one volume | a terminal started with "Run as administrator"; a volume in use may need to be dismounted first, or image the whole PhysicalDrive instead |
+
+Find the device with `lsblk` (Linux), `diskutil list` (macOS), or
+`Get-Disk` / `wmic diskdrive list brief` (Windows), and check the size
+before reading: the tool refuses nothing, so pointing it at the wrong disk
+merely wastes time, but pointing `image` at the wrong *output* disk is your
+own risk. A permission failure prints the fix for the platform you are on
+rather than a bare "permission denied".
+
+The best practice for a failing drive is to image it once
+(`unearth image /dev/rdisk2 card.img`) and run everything else against the
+image; see [Image a failing drive first](#image-a-failing-drive-first-recommended).
+
 ## Limitations
 
 Common to both strategies:
@@ -1022,15 +1054,33 @@ Common to both strategies:
 - FAT only: if a deleted file had no long name, the first character of its short
   (8.3) name is lost to the deletion marker and is shown as `_`. exFAT and NTFS
   preserve the full name.
+- FAT and exFAT: a folder that was deleted as a whole is followed into, so the
+  files inside come back under the folder's name (with the same `_` caveat for
+  a short-named folder), as long as the folder's clusters have not been reused.
+  Windows leaves those files looking live inside the dead folder; they are
+  treated as deleted all the same.
+- FAT32 only: Windows zeroes the high half of a deleted entry's start cluster,
+  so on a volume with more than 65,536 clusters the file's location is
+  ambiguous. The right cluster is picked from the free candidates by the
+  content's type, then by the longest free run, which is right for the usual
+  contiguous file but can still miss.
+- NTFS: a file deleted by Windows keeps its name in the MFT record. The Linux
+  `ntfs3` driver strips the name but leaves the data runs; such files are
+  recovered under `_unnamed/mft-<record>.<ext>`, with the extension identified
+  from the content. The bytes are exact, which is more than carving can promise.
 - NTFS and ext reconstruct fragmented files (explicit cluster/extent maps); FAT
   and exFAT assume contiguous data, so badly fragmented files may be partial.
 - ext only: when ext4 zeroes the live inode's extents on deletion, recovery
-  falls back to an older inode-table copy in the **journal (jbd2)**. If the
-  journal has wrapped past it (or the inode was reused), the file is
-  unrecoverable by metadata — use `scan`.
-- HFS+ only: recovers deleted files from stale **catalog** records left in
-  B-tree leaf-node free space, with original folder paths rebuilt from the live
-  catalog hierarchy. It follows the eight extents stored inline in the record
+  falls back to an older inode-table copy in the **journal (jbd2)**. Modern
+  kernels also zero the directory entry, so the *names* come from journaled
+  copies of the directory blocks too, and a folder removed as a whole is
+  followed the same way. If the journal has wrapped past those copies (or the
+  inode was reused), the file is unrecoverable by metadata — use `scan`.
+- HFS+ only: recovers deleted files from stale **catalog** records, both those
+  left in B-tree leaf-node free space and, on a journaled volume (every Mac
+  since 10.3), the older copies of leaf nodes in the **journal** — which is
+  where they actually survive, since macOS scrubs the live node. Original
+  folder paths are rebuilt from the live catalog hierarchy. It follows the eight extents stored inline in the record
   plus any tail extents from the **extents-overflow B-tree**, so fragmented
   files come back whole. A file whose catalog record has been overwritten, or
   whose tail extents survive nowhere, is not recovered by metadata — use `scan`.

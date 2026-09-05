@@ -8,3 +8,8 @@ Cargo.lock.orig
 
 # Heap profiler output (dhat)
 dhat-heap.json
+
+# Test corpus images (published as a release tarball; see corpus/README.md)
+/corpus/images/
+/corpus/work/
+/corpus/*.tar.gz

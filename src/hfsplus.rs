@@ -16,6 +16,19 @@
 //! catalog record and, for a file fragmented beyond them, the remaining extents
 //! from the **extents-overflow B-tree** (keyed by the file's CNID).
 //!
+//! ## The journal
+//!
+//! That free-space scavenging is what a bare HFS+ volume offers. A **journaled**
+//! volume (every Mac since 10.3 formats one) is different in practice: the
+//! real-image corpus showed that macOS rewrites a leaf node cleanly when a
+//! record is removed, so nothing is left in the node's free space. What does
+//! survive is the **journal**: a circular buffer of whole-block copies of every
+//! metadata block written recently, including catalog leaf nodes as they were
+//! *before* the deletion. This backend therefore also scans the journal for
+//! stale catalog leaf nodes and treats any file record in them whose CNID is
+//! no longer live as a deleted file, keeping the newest copy of each. It is
+//! the HFS+ analogue of the ext4 jbd2 fallback.
+//!
 //! ## What this cannot do
 //!
 //! A file whose tail extents are not recorded in the extents-overflow tree —
@@ -55,6 +68,16 @@ const HFS_TO_UNIX_EPOCH: u32 = 2_082_844_800;
 const MAX_CATALOG: usize = 64 * 1024 * 1024;
 /// Cap on the allocation bitmap bytes read into memory, to bound allocations.
 const MAX_BITMAP: usize = 256 * 1024 * 1024;
+/// `kHFSVolumeJournaledBit` in the volume header attributes.
+const ATTR_JOURNALED: u32 = 1 << 13;
+/// `kJIJournalInFSMask`: the journal lives inside this volume.
+const JI_JOURNAL_IN_FS: u32 = 1;
+/// Cap on the journal bytes scanned, to bound work on a huge volume (the
+/// journal is at most 512 MiB on real volumes; a stale node is never bigger
+/// than a few KiB, so scanning is cheap per byte).
+const MAX_JOURNAL: u64 = 512 * 1024 * 1024;
+/// Journal scan chunk size; stale nodes can start on any 512-byte boundary.
+const JOURNAL_CHUNK: usize = 4 * 1024 * 1024;
 
 /// A parsed HFS+/HFSX volume.
 pub struct Volume {
@@ -73,6 +96,9 @@ pub struct Volume {
     extents_overflow_extents: Vec<(u32, u32)>,
     extents_overflow_size: u64,
     hfsx: bool,
+    /// Byte range (offset within the volume, length) of the journal buffer on a
+    /// journaled volume whose journal is in the volume itself.
+    journal: Option<(u64, u64)>,
     /// Volume creation time (`createDate`), Unix seconds; `None` when unset.
     created: Option<u64>,
     /// Volume last-modification time (`modifyDate`), Unix seconds; `None` when
@@ -258,6 +284,26 @@ impl Volume {
         let created = hfs_time(be32(&vh, 0x10));
         let written = hfs_time(be32(&vh, 0x14));
 
+        // A journaled volume points (attributes bit 13, journalInfoBlock @12)
+        // at a JournalInfoBlock: flags @0, then device signature (32 bytes),
+        // then the journal's byte offset @36 and size @44, all big-endian.
+        // Parsed non-fatally: without it, only the catalog is scanned.
+        let vol_bytes = block_size * total_blocks;
+        let mut journal = None;
+        let jib = be32(&vh, 12) as u64;
+        if be32(&vh, 4) & ATTR_JOURNALED != 0 && jib > 0 && jib < total_blocks {
+            let mut info = [0u8; 52];
+            if src.read_at(offset + jib * block_size, &mut info)? == 52
+                && be32(&info, 0) & JI_JOURNAL_IN_FS != 0
+            {
+                let joff = be64(&info, 36);
+                let jsize = be64(&info, 44);
+                if jsize > 0 && joff < vol_bytes && jsize <= vol_bytes - joff {
+                    journal = Some((joff, jsize.min(MAX_JOURNAL)));
+                }
+            }
+        }
+
         Ok(Volume {
             offset,
             block_size,
@@ -268,6 +314,7 @@ impl Volume {
             extents_overflow_extents,
             extents_overflow_size,
             hfsx,
+            journal,
             created,
             written,
         })
@@ -398,8 +445,7 @@ impl Volume {
         let overflow = self.read_extents_overflow(src);
 
         // Pass 2: scan each leaf node's free space for stale file records.
-        let vol_bytes = self.size();
-        let mut stats = RecoverStats::default();
+        let mut candidates: Vec<FileRecord> = Vec::new();
         let mut seen: HashSet<u32> = HashSet::new();
         for idx in 0..total_nodes {
             let node = &catalog[idx * node_size..(idx + 1) * node_size];
@@ -420,34 +466,112 @@ impl Volume {
                 if live.contains(&rec.file_id) || !seen.insert(rec.file_id) {
                     continue;
                 }
-                let rel = resolve_path(&folders, rec.parent_id).join(sanitize_component(&rec.name));
-                let size = rec.logical_size;
-                if !opts.size_ok(size) {
-                    continue;
-                }
-                if !opts.time_ok(crate::times::from_unix(hfs_to_unix(rec.mod_date))) {
-                    continue;
-                }
-                if !opts.name_ok(&rec.name) {
-                    continue;
-                }
-                if size == 0 || size > vol_bytes {
-                    stats.record_skipped(rel, size);
-                    continue;
-                }
-                if opts.dry_run {
-                    stats.record_recovered(rel, size, None);
-                    continue;
-                }
-                match self.write_file(src, out_dir, &rel, &rec, &overflow) {
-                    Some((written, digest)) if written == size => {
-                        stats.record_recovered(rel, size, Some(digest))
+                candidates.push(rec);
+            }
+        }
+
+        // Pass 3: stale leaf nodes in the journal. Each holds the records as
+        // they were when that copy was written, so a record for a CNID that is
+        // no longer live is a deleted file. Folder records seen only there name
+        // folders that were deleted along with their contents.
+        if let Some((joff, jlen)) = self.journal {
+            let mut newest: HashMap<u32, FileRecord> = HashMap::new();
+            self.scan_journal(src, joff, jlen, node_size, |node| {
+                for off in live_record_offsets(node, node_size) {
+                    if let Some(rec) = parse_file_record(node, off, self) {
+                        if live.contains(&rec.file_id) || seen.contains(&rec.file_id) {
+                            continue;
+                        }
+                        let replace = newest
+                            .get(&rec.file_id)
+                            .map(|old| rec.mod_date >= old.mod_date)
+                            .unwrap_or(true);
+                        if replace {
+                            newest.insert(rec.file_id, rec);
+                        }
+                    } else if let Some((cnid, name, parent)) = parse_folder_record(node, off, self)
+                    {
+                        folders.entry(cnid).or_insert((name, parent));
                     }
-                    _ => stats.record_skipped(rel, size),
                 }
+            })?;
+            let mut from_journal: Vec<FileRecord> = newest.into_values().collect();
+            from_journal.sort_by_key(|r| r.file_id);
+            candidates.extend(from_journal);
+        }
+
+        let vol_bytes = self.size();
+        let mut stats = RecoverStats::default();
+        for rec in candidates {
+            let rel = resolve_path(&folders, rec.parent_id).join(sanitize_component(&rec.name));
+            let size = rec.logical_size;
+            if !opts.size_ok(size) {
+                continue;
+            }
+            if !opts.time_ok(crate::times::from_unix(hfs_to_unix(rec.mod_date))) {
+                continue;
+            }
+            if !opts.name_ok(&rec.name) {
+                continue;
+            }
+            if size == 0 || size > vol_bytes {
+                stats.record_skipped(rel, size);
+                continue;
+            }
+            if opts.dry_run {
+                stats.record_recovered(rel, size, None);
+                continue;
+            }
+            match self.write_file(src, out_dir, &rel, &rec, &overflow) {
+                Some((written, digest)) if written == size => {
+                    stats.record_recovered(rel, size, Some(digest))
+                }
+                _ => stats.record_skipped(rel, size),
             }
         }
         Ok(stats)
+    }
+
+    /// Walk the journal buffer in chunks and call `f` with every byte range
+    /// that looks like a complete catalog leaf node. The journal is a ring of
+    /// block copies whose transaction headers are in the writing machine's
+    /// byte order, so rather than replaying it the scan simply looks for node
+    /// descriptors at 512-byte boundaries and checks their record-offset
+    /// array: a real node's offsets start at 14 and rise strictly, and random
+    /// bytes almost never do.
+    fn scan_journal(
+        &self,
+        src: &Source,
+        joff: u64,
+        jlen: u64,
+        node_size: usize,
+        mut f: impl FnMut(&[u8]),
+    ) -> Result<()> {
+        let mut buf = vec![0u8; JOURNAL_CHUNK + node_size];
+        let mut pos = 0u64;
+        while pos < jlen {
+            let want = ((jlen - pos) as usize).min(JOURNAL_CHUNK + node_size);
+            let n = src.read_at(self.offset + joff + pos, &mut buf[..want])?;
+            if n < node_size {
+                break;
+            }
+            // Only starts within the first JOURNAL_CHUNK bytes are this chunk's;
+            // the overlap exists so a node straddling the boundary is complete.
+            let last_start = n.saturating_sub(node_size).min(JOURNAL_CHUNK - 1);
+            let mut off = 0;
+            while off <= last_start {
+                let node = &buf[off..off + node_size];
+                if looks_like_leaf_node(node, node_size) {
+                    f(node);
+                }
+                off += 512;
+            }
+            if n < want {
+                break;
+            }
+            pos += JOURNAL_CHUNK as u64;
+        }
+        Ok(())
     }
 
     /// Read the catalog file into memory by following its inline extents.
@@ -837,6 +961,32 @@ fn live_record_offsets(node: &[u8], node_size: usize) -> Vec<usize> {
     offsets
 }
 
+/// Whether `node` is plausibly a complete catalog leaf node: leaf kind, height
+/// 1, a reserved word of zero, and a record-offset array whose entries start at
+/// 14 (right after the descriptor), rise strictly, and stay clear of the array
+/// itself. Used to pick stale nodes out of the journal without replaying it.
+fn looks_like_leaf_node(node: &[u8], node_size: usize) -> bool {
+    if node.len() < node_size || node_kind(node) != KIND_LEAF || node[9] != 1 {
+        return false;
+    }
+    let num = be16(node, 10) as usize;
+    // Every record is at least a key length + minimal key + record type.
+    if num == 0 || num > node_size / 24 || be16(node, 12) != 0 {
+        return false;
+    }
+    let array_start = node_size - 2 * (num + 1);
+    let mut prev = 0usize;
+    for i in 0..=num {
+        let off = be16(node, node_size - 2 * (i + 1)) as usize;
+        let expect_first = i == 0 && off != 14;
+        if expect_first || off <= prev || off > array_start {
+            return false;
+        }
+        prev = off;
+    }
+    true
+}
+
 /// The free-space byte range of a leaf node: from the end of the last live
 /// record up to the start of the record-offset array.
 fn free_space(node: &[u8], node_size: usize) -> (usize, usize) {
@@ -893,22 +1043,9 @@ fn resolve_path(folders: &HashMap<u32, (String, u32)>, parent_id: u32) -> PathBu
 }
 
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c == ':' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    // HFS+ stores a `/` in a name as `:` (the classic Mac OS separator), so a
+    // colon here is a slash and is neutralised the same way.
+    crate::recover::sanitize_component(&name.replace(':', "_"))
 }
 
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
@@ -988,6 +1125,7 @@ mod tests {
             extents_overflow_extents: vec![],
             extents_overflow_size: 0,
             hfsx: false,
+            journal: None,
             created: None,
             written: None,
         }

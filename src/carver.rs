@@ -210,7 +210,7 @@ pub fn carve_seeded(
                                 // it without writing, so its interior isn't
                                 // rescanned for nested magics.
                                 stats.skipped_large += 1;
-                                if !opts.allow_nested {
+                                if !opts.allow_nested && !sig.is_volume() {
                                     skip_until = file_start + len;
                                 }
                             } else if opts.validate
@@ -229,8 +229,10 @@ pub fn carve_seeded(
                                     &mut seen,
                                 )?;
                                 // A duplicate still occupies this region, so skip
-                                // past it just like a written file.
-                                if !opts.allow_nested {
+                                // past it just like a written file. A filesystem
+                                // image is the exception: the files inside it
+                                // are what the scan is for, so keep looking.
+                                if !opts.allow_nested && !sig.is_volume() {
                                     skip_until = file_start + len;
                                 }
                                 if let Some(max) = opts.max_files {
@@ -1847,7 +1849,20 @@ fn sfnt_tables_end(
         return Ok(None);
     }
     let num_tables = u16::from_be_bytes([hdr[4], hdr[5]]) as u64;
-    if num_tables == 0 || num_tables > 4096 {
+    if num_tables == 0 || num_tables > 512 {
+        return Ok(None);
+    }
+    // The header's binary-search fields are derived from numTables, so they
+    // give a four-byte magic a real check. The real-image corpus found an
+    // HFS+ journal header passing as a 42 MiB font that hid every file.
+    let search_range = u16::from_be_bytes([hdr[6], hdr[7]]) as u64;
+    let entry_selector = u16::from_be_bytes([hdr[8], hdr[9]]) as u64;
+    let range_shift = u16::from_be_bytes([hdr[10], hdr[11]]) as u64;
+    let pow2 = 1u64 << (63 - num_tables.leading_zeros() as u64); // largest power of two <= numTables
+    if search_range != pow2 * 16
+        || entry_selector != pow2.trailing_zeros() as u64
+        || range_shift != num_tables * 16 - search_range
+    {
         return Ok(None);
     }
     let dir_end = dir_rel + 12 + num_tables * 16;
@@ -1861,10 +1876,14 @@ fn sfnt_tables_end(
         if source.read_at(file_start + dir_rel + 12 + i * 16, &mut entry)? < 16 {
             return Ok(None);
         }
+        // Table tags are four printable ASCII characters ("cmap", "OS/2").
+        if !entry[..4].iter().all(|b| (0x20..=0x7E).contains(b)) {
+            return Ok(None);
+        }
         let off = u32::from_be_bytes([entry[8], entry[9], entry[10], entry[11]]) as u64;
         let len = u32::from_be_bytes([entry[12], entry[13], entry[14], entry[15]]) as u64;
-        // Each table must sit within the file and after at least a header.
-        if off < 12 {
+        // Each table sits after its directory.
+        if off < dir_end {
             return Ok(None);
         }
         let padded = off.saturating_add(len).saturating_add(3) & !3;
@@ -1989,10 +2008,33 @@ fn icocur_length(source: &Source, file_start: u64, limit: u64) -> Result<Option<
         if source.read_at(file_start + 6 + i * 16, &mut entry)? < 16 {
             return Ok(None);
         }
+        // Each entry: width, height, palette size, reserved (0), colour
+        // planes (0 or 1), bits per pixel, byte size, offset. The magic is
+        // only four bytes, so every field that has a small legal range is
+        // checked: the real-image corpus found an exFAT up-case table
+        // (0,1,2,3,... as u16s) passing as a 2 MiB icon and hiding every file
+        // behind it.
+        let planes = u16::from_le_bytes([entry[4], entry[5]]);
+        let bpp = u16::from_le_bytes([entry[6], entry[7]]);
+        if entry[3] != 0 || planes > 1 || !matches!(bpp, 0 | 1 | 4 | 8 | 16 | 24 | 32) {
+            return Ok(None);
+        }
         let size = u32::from_le_bytes([entry[8], entry[9], entry[10], entry[11]]) as u64;
         let off = u32::from_le_bytes([entry[12], entry[13], entry[14], entry[15]]) as u64;
         // Image data must be non-empty and sit past the directory.
         if size == 0 || off < dir_end {
+            return Ok(None);
+        }
+        // The data is a DIB (a BITMAPINFOHEADER-family header whose first
+        // field is its own size) or, since Vista, a whole PNG.
+        let mut head = [0u8; 8];
+        if file_start + off + 8 > limit || source.read_at(file_start + off, &mut head)? < 8 {
+            return Ok(None);
+        }
+        let dib = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+        let is_dib = matches!(dib, 12 | 40 | 52 | 56 | 108 | 124);
+        let is_png = head == [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        if !is_dib && !is_png {
             return Ok(None);
         }
         max_end = max_end.max(off.saturating_add(size));
@@ -6831,7 +6873,25 @@ fn find_footer(
         }
         if let Some(idx) = find_subsequence(&buf[..n], marker) {
             let marker_end = pos + idx as u64 + marker.len() as u64;
-            let file_end = (marker_end + trailing).min(limit);
+            // The trailing allowance is for a line ending after the marker
+            // (`%%EOF\r\n`), so only absorb CR/LF bytes — never whatever
+            // happens to follow the file on disk. The real-image corpus caught
+            // carved PDFs coming back two bytes longer than the original.
+            let mut file_end = marker_end;
+            while file_end < marker_end + trailing && file_end < limit {
+                let rel = (file_end - pos) as usize;
+                let mut b = [0u8; 1];
+                let got = if rel < n {
+                    b[0] = buf[rel];
+                    1
+                } else {
+                    source.read_at(file_end, &mut b)?
+                };
+                if got == 0 || !matches!(b[0], b'\r' | b'\n') {
+                    break;
+                }
+                file_end += 1;
+            }
             return Ok(Some(file_end - file_start));
         }
         if n < want || pos + n as u64 >= limit {

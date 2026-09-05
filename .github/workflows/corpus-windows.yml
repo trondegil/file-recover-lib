@@ -1,0 +1,71 @@
+name: Corpus (Windows)
+
+# Build the Windows-formatted corpus images with diskpart on a real Windows
+# runner (which runs elevated), record their recall baselines, and publish the
+# results as artifacts to be committed and added to the corpus release.
+# Manual, or on a push to a corpus/* branch that touches the recipe.
+on:
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: Comma-separated scenarios (empty = all)
+        required: false
+        default: ""
+  push:
+    branches: ["corpus/**"]
+    paths:
+      - corpus/recipes/windows.ps1
+      - examples/corpus_tool.rs
+      - .github/workflows/corpus-windows.yml
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-images:
+    name: diskpart images + baselines
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the images
+        shell: pwsh
+        env:
+          CORPUS_SCENARIOS: ${{ github.event.inputs.scenarios }}
+          # Keep staging paths short: the long-name scenario adds 200 chars.
+          CORPUS_WORK: C:\cw
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File corpus\recipes\windows.ps1
+          Get-ChildItem corpus\images | Format-Table Name, Length
+
+      - name: Record baselines
+        shell: pwsh
+        env:
+          UNEARTH_CORPUS_OFFLINE: "1"
+          UNEARTH_CORPUS_RECORD: "1"
+          UNEARTH_CORPUS_ONLY: windows-
+        run: cargo test --release --test corpus_test -- --ignored --nocapture
+
+      # Upload even when recording found a regression: the images are what is
+      # needed to investigate it.
+      - name: Upload expected results and lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-windows-expected
+          path: |
+            corpus/expected/windows-*.json
+            corpus/corpus.lock
+          if-no-files-found: error
+
+      - name: Upload images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-windows-images
+          path: corpus/images/windows-*.vhd
+          if-no-files-found: error
+          compression-level: 6

@@ -169,7 +169,7 @@ fn tool_definitions() -> Json {
         "list_types",
         "List the file types signature carving can recover. Each entry has its \
          extension, description, and category (image/audio/video/document/\
-         archive/executable/font/system) — a category name can be passed to \
+         archive/executable/font/system/volume) — a category name can be passed to \
          `scan` to select that whole class.",
         schema(vec![], vec![]),
     );
@@ -237,7 +237,8 @@ fn tool_definitions() -> Json {
                                an extension (e.g. \"jpg\") or a category that \
                                expands to a whole class: \"image\", \"audio\", \
                                \"video\", \"document\", \"archive\", \"executable\", \
-                               \"font\", or \"system\"."),
+                               \"font\", \"system\", or \"volume\" (whole filesystem \
+                               images; the only category left out of the default)."),
                         ),
                     ]),
                 ),

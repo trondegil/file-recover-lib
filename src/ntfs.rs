@@ -16,6 +16,15 @@
 //! Unlike FAT/exFAT, NTFS records the full list of cluster runs for a file, so
 //! this backend can reconstruct **fragmented** files correctly (as long as the
 //! record's run list is intact).
+//!
+//! ## Nameless records
+//!
+//! Windows leaves the whole record intact, name included. The Linux `ntfs3`
+//! driver does not: the real-image corpus showed it stripping `$FILE_NAME`
+//! from a deleted record while keeping `$DATA` and its runs. Such a record
+//! still describes the file's exact bytes, so it is recovered anyway, under
+//! `_unnamed/mft-<record>.<ext>` with the extension identified from the
+//! content — still better than carving, which would guess at the length.
 
 use std::collections::HashSet;
 use std::fs;
@@ -355,25 +364,35 @@ impl Volume {
                 Some(p) => p,
                 None => continue,
             };
-            let (name, parent) = match parsed.file_name {
-                Some(f) => f,
-                None => continue,
-            };
             let data = match parsed.data {
                 Some(d) => d,
                 None => continue,
             };
+            // A record stripped of its name (the Linux ntfs3 driver does this)
+            // is still worth its exact data; it just cannot be placed by path.
+            let nameless = parsed.file_name.is_none();
+            let (name, parent) = parsed
+                .file_name
+                .unwrap_or_else(|| (format!("mft-{index}.bin"), 0));
             if !opts.size_ok(data.size) {
                 continue;
             }
             if !opts.time_ok(parsed.mtime) {
                 continue;
             }
-            if !opts.name_ok(&name) {
+            if !nameless && !opts.name_ok(&name) {
                 continue;
             }
 
-            let rel = self.resolve_path(src, parent, &name);
+            let rel = if nameless {
+                // Nothing to recover from an empty, nameless record.
+                if data.size == 0 {
+                    continue;
+                }
+                Path::new("_unnamed").join(&name)
+            } else {
+                self.resolve_path(src, parent, &name)
+            };
             if opts.dry_run {
                 stats.record_recovered(rel, data.size, None);
                 continue;
@@ -381,12 +400,47 @@ impl Volume {
             let times = (parsed.mtime, parsed.atime);
             match self.write_file(src, out_dir, &rel, &data, times) {
                 Ok((written, digest)) if written > 0 || data.size == 0 => {
+                    let rel = if nameless {
+                        self.rename_by_content(out_dir, &rel)
+                    } else {
+                        rel
+                    };
+                    if nameless && !opts.name_ok(crate::recover::file_name_of(&rel)) {
+                        let _ = fs::remove_file(out_dir.join(&rel));
+                        continue;
+                    }
                     stats.record_recovered(rel, data.size, Some(digest))
                 }
                 _ => stats.record_skipped(rel, data.size),
             }
         }
         Ok(stats)
+    }
+
+    /// Give a nameless recovered file (`mft-N.bin`) the extension its content
+    /// identifies as, when it does. Returns the path the file ended up at.
+    fn rename_by_content(&self, out_dir: &Path, rel: &Path) -> PathBuf {
+        let full = out_dir.join(rel);
+        let mut head = vec![0u8; 64 * 1024];
+        let n = match fs::File::open(&full).and_then(|mut f| {
+            use std::io::Read;
+            f.read(&mut head)
+        }) {
+            Ok(n) => n,
+            Err(_) => return rel.to_path_buf(),
+        };
+        let Some(det) = crate::identify::identify(&head[..n]) else {
+            return rel.to_path_buf();
+        };
+        let renamed = rel.with_extension(det.ext);
+        let target = unique_path(out_dir, &renamed);
+        match fs::rename(&full, &target) {
+            Ok(()) => target
+                .strip_prefix(out_dir)
+                .unwrap_or(&renamed)
+                .to_path_buf(),
+            Err(_) => rel.to_path_buf(),
+        }
     }
 
     /// Write a recovered file's data (resident inline, or from cluster runs).
@@ -839,22 +893,7 @@ fn apply_fixup(rec: &mut [u8], bytes_per_sector: usize) {
 
 /// Make a single path component safe to write to disk.
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    crate::recover::sanitize_component(name)
 }
 
 /// Build a non-colliding output path by appending a counter if needed.

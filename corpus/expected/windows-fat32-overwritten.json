@@ -1,0 +1,43 @@
+{
+  "baseline": {
+    "scan": 1,
+    "undelete": 1
+  },
+  "files": [
+    {
+      "carvable": true,
+      "expect": "maybe",
+      "mtime": 1710496800,
+      "path": "old-photo.jpg",
+      "sha256": "6a840626509f4b8f79f69e63b2265fc900a203d67a58d1344ce9706ed6c30473",
+      "size": 3145729
+    },
+    {
+      "carvable": true,
+      "expect": "maybe",
+      "mtime": 1710496861,
+      "path": "old-report.pdf",
+      "sha256": "e4a24ed7738df55de7eba8b2899b063026ebbe9ec6fff4dda0ce20851aedbd41",
+      "size": 2097155
+    },
+    {
+      "carvable": true,
+      "expect": "intact",
+      "mtime": 1710496922,
+      "path": "survivor.png",
+      "sha256": "b54b492d495191523edc8431b1bce22514cbc6991bd96930035c0f0767fe0eec",
+      "size": 512005
+    }
+  ],
+  "filesystem": "fat32",
+  "image": {
+    "file": "windows-fat32-overwritten.vhd",
+    "sha256": "798d2072e810088b025b681b699583bc0fd586e5e0bb5c7995d4a32c9df4bc4d",
+    "size": 67109376
+  },
+  "live_files": 64,
+  "name": "windows-fat32-overwritten",
+  "platform": "windows",
+  "scenario": "overwritten",
+  "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
+}
