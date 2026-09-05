@@ -13,7 +13,9 @@ fn inputs(target: &str) -> Vec<(String, Vec<u8>)> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fuzz_regressions")
         .join(target);
-    let Ok(rd) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<(String, Vec<u8>)> = rd
         .flatten()
         .filter(|e| e.path().is_file())
@@ -65,7 +67,9 @@ fn filesystems_regressions() {
         ..RecoverOptions::default()
     };
     for (name, data) in inputs("filesystems") {
-        let Some(src) = source_of(tmp.path(), &data) else { continue };
+        let Some(src) = source_of(tmp.path(), &data) else {
+            continue;
+        };
         let out = tmp.path().join("out");
         if let Ok(vols) = recover::detect(&src) {
             for v in vols {
@@ -85,8 +89,15 @@ fn carve_regressions() {
     let tmp = tempfile::tempdir().unwrap();
     let sigs = signatures::select(&["all".to_string()]).unwrap();
     for (name, data) in inputs("carve") {
-        let Some(src) = source_of(tmp.path(), &data) else { continue };
-        let _ = carver::carve(&src, &sigs, &carve_opts(&tmp.path().join("out")), &NoProgress);
+        let Some(src) = source_of(tmp.path(), &data) else {
+            continue;
+        };
+        let _ = carver::carve(
+            &src,
+            &sigs,
+            &carve_opts(&tmp.path().join("out")),
+            &NoProgress,
+        );
         eprintln!("carve/{name}: ok");
     }
 }
@@ -106,14 +117,29 @@ fn json_regressions() {
 fn custom_spec_regressions() {
     let tmp = tempfile::tempdir().unwrap();
     for (name, data) in inputs("custom_spec") {
-        let Some(nl) = data.iter().position(|&b| b == b'\n') else { continue };
-        let Ok(text) = std::str::from_utf8(&data[..nl]) else { continue };
-        let Ok(value) = json::parse(text) else { continue };
-        let Ok(specs) = custom::from_json(&value) else { continue };
-        let Some(src) = source_of(tmp.path(), &data[nl + 1..]) else { continue };
+        let Some(nl) = data.iter().position(|&b| b == b'\n') else {
+            continue;
+        };
+        let Ok(text) = std::str::from_utf8(&data[..nl]) else {
+            continue;
+        };
+        let Ok(value) = json::parse(text) else {
+            continue;
+        };
+        let Ok(specs) = custom::from_json(&value) else {
+            continue;
+        };
+        let Some(src) = source_of(tmp.path(), &data[nl + 1..]) else {
+            continue;
+        };
         let owned: Vec<_> = specs.iter().map(|s| s.to_signature()).collect();
         let sigs: Vec<&signatures::Signature> = owned.iter().collect();
-        let _ = carver::carve(&src, &sigs, &carve_opts(&tmp.path().join("out")), &NoProgress);
+        let _ = carver::carve(
+            &src,
+            &sigs,
+            &carve_opts(&tmp.path().join("out")),
+            &NoProgress,
+        );
         eprintln!("custom_spec/{name}: ok");
     }
 }
