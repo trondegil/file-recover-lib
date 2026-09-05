@@ -1011,6 +1011,28 @@ previous run; the dhat example writes `dhat-heap.json` for the
 [dh_view](https://nnethercote.github.io/dh_view/dh_view.html) allocation viewer.
 The numbers above are indicative micro-benchmark figures and depend on hardware.
 
+## Reading a physical drive
+
+Point any command at the device itself. The source is only ever opened
+read-only, and its size is found even when the OS will not report one.
+
+| Platform | Device | Needs |
+|---|---|---|
+| Linux | `/dev/sdb`, `/dev/mmcblk0`, `/dev/nvme0n1` | root, or membership in the `disk` group (`sudo usermod -aG disk $USER`, then log in again) |
+| macOS | `/dev/rdisk2` (the `r` matters: the raw device is several times faster than `/dev/disk2`) | `sudo`; if that still fails, give your terminal Full Disk Access in System Settings > Privacy & Security |
+| Windows | `\\.\PhysicalDrive1` for a whole disk, `\\.\D:` for one volume | a terminal started with "Run as administrator"; a volume in use may need to be dismounted first, or image the whole PhysicalDrive instead |
+
+Find the device with `lsblk` (Linux), `diskutil list` (macOS), or
+`Get-Disk` / `wmic diskdrive list brief` (Windows), and check the size
+before reading: the tool refuses nothing, so pointing it at the wrong disk
+merely wastes time, but pointing `image` at the wrong *output* disk is your
+own risk. A permission failure prints the fix for the platform you are on
+rather than a bare "permission denied".
+
+The best practice for a failing drive is to image it once
+(`unearth image /dev/rdisk2 card.img`) and run everything else against the
+image; see [Image a failing drive first](#image-a-failing-drive-first-recommended).
+
 ## Limitations
 
 Common to both strategies:

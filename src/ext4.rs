@@ -1095,22 +1095,7 @@ fn parse_journal_tags(block: &[u8], csum_v3: bool, is_64bit: bool) -> Vec<u64> {
 }
 
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    crate::recover::sanitize_component(name)
 }
 
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {

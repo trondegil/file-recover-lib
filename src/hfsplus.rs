@@ -1043,22 +1043,9 @@ fn resolve_path(folders: &HashMap<u32, (String, u32)>, parent_id: u32) -> PathBu
 }
 
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c == ':' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    // HFS+ stores a `/` in a name as `:` (the classic Mac OS separator), so a
+    // colon here is a slash and is neutralised the same way.
+    crate::recover::sanitize_component(&name.replace(':', "_"))
 }
 
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {

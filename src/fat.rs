@@ -846,22 +846,7 @@ fn assemble_lfn(parts: &[String]) -> String {
 
 /// Make a single path component safe to write to disk.
 fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "_recovered".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    crate::recover::sanitize_component(name)
 }
 
 /// Build a non-colliding output path by appending a counter if needed.

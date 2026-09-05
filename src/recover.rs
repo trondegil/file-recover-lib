@@ -87,6 +87,56 @@ impl RecoverOptions {
 
 /// The final path component of `p` as a string (empty if it has none). Used to
 /// match a recovered file's name against the `--name` filters.
+/// Make one recovered path component safe to create on the machine we are
+/// running on, without changing it more than that.
+///
+/// Everywhere: path separators, NUL, and control characters become `_`, and
+/// an empty, `.`, or `..` component becomes `_recovered`. On Windows the
+/// characters its filesystems refuse (`< > : " | ? *`) become `_` too, a
+/// trailing dot or space is trimmed, and the reserved device names (`CON`,
+/// `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`, with or without an
+/// extension) get an underscore in front. A file recovered from an ext4
+/// disk as `report:final?.txt` must still be writable there.
+pub fn sanitize_component(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            let windows_reserved = matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*');
+            if c == '/'
+                || c == '\\'
+                || c == '\0'
+                || c.is_control()
+                || (cfg!(windows) && windows_reserved)
+            {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let mut trimmed = cleaned.trim();
+    if cfg!(windows) {
+        trimmed = trimmed.trim_end_matches(['.', ' ']);
+    }
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return "_recovered".to_string();
+    }
+    if cfg!(windows) && is_windows_reserved(trimmed) {
+        return format!("_{trimmed}");
+    }
+    trimmed.to_string()
+}
+
+/// Whether `name` (ignoring any extension and case) is a Windows device name.
+fn is_windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0')
+}
+
 pub fn file_name_of(p: &Path) -> &str {
     p.file_name().and_then(|s| s.to_str()).unwrap_or("")
 }
@@ -1127,5 +1177,34 @@ mod tests {
             "excluded even though it matches include"
         );
         assert!(!both.name_ok("photo.jpg"), "not an include match");
+    }
+
+    #[test]
+    fn sanitize_component_is_portable() {
+        assert_eq!(super::sanitize_component("a/b"), "a_b");
+        assert_eq!(super::sanitize_component("a\\b"), "a_b");
+        assert_eq!(super::sanitize_component("tab\tname"), "tab_name");
+        assert_eq!(super::sanitize_component(""), "_recovered");
+        assert_eq!(super::sanitize_component(".."), "_recovered");
+        assert_eq!(super::sanitize_component("  spaced  "), "spaced");
+        if cfg!(windows) {
+            assert_eq!(
+                super::sanitize_component("report:final?.txt"),
+                "report_final_.txt"
+            );
+            assert_eq!(super::sanitize_component("CON"), "_CON");
+            assert_eq!(super::sanitize_component("com1.txt"), "_com1.txt");
+            assert_eq!(super::sanitize_component("trailing."), "trailing");
+        } else {
+            assert_eq!(
+                super::sanitize_component("report:final?.txt"),
+                "report:final?.txt"
+            );
+            assert_eq!(super::sanitize_component("CON"), "CON");
+        }
+        assert!(super::is_windows_reserved("NUL"));
+        assert!(super::is_windows_reserved("lpt9.log"));
+        assert!(!super::is_windows_reserved("COM0"));
+        assert!(!super::is_windows_reserved("CONSOLE"));
     }
 }
