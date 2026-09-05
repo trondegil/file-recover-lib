@@ -263,3 +263,55 @@ fn free_extents_reports_unallocated_clusters() {
     assert!(!covered(2), "cluster 2 (root) is allocated");
     assert!(!covered(4), "cluster 4 (bitmap) is allocated");
 }
+
+/// A deleted file whose FAT chain was cleared, written around a cluster that
+/// is still allocated to a live file: the read must step over the allocated
+/// cluster (the bitmap says it cannot be ours) and come back whole.
+#[test]
+fn reassembles_a_fragmented_file_around_an_allocated_cluster() {
+    let mut img = vec![0u8; VOLUME_SECTORS as usize * BPS];
+    write_boot(&mut img);
+    write_fat(&mut img, ROOT_CLUSTER, 0xFFFF_FFFF);
+    write_fat(&mut img, 4, 0xFFFF_FFFF); // bitmap
+    write_fat(&mut img, 7, 0xFFFF_FFFF); // a live file's single cluster
+
+    // Bitmap at cluster 4: clusters 2, 4, and 7 allocated (bits are cluster-2).
+    let root_off = cluster_byte_offset(ROOT_CLUSTER);
+    img[root_off..root_off + 32].copy_from_slice(&bitmap_entry(4, 4));
+    let bm = cluster_byte_offset(4);
+    img[bm] = 0b0010_0101; // clusters 2, 4, 7
+
+    // The deleted file's data: clusters 6, 8, 9 (three full clusters minus a
+    // few bytes), chain cleared, NoFatChain clear (it was not contiguous).
+    let payload: Vec<u8> = (0..(3 * CLUSTER - 5) as u32)
+        .map(|i| (i % 251) as u8)
+        .collect();
+    let (c6, rest) = payload.split_at(CLUSTER);
+    let (c8, c9) = rest.split_at(CLUSTER);
+    for (cluster, bytes) in [(6u32, c6), (8, c8), (9, c9)] {
+        let off = cluster_byte_offset(cluster);
+        img[off..off + bytes.len()].copy_from_slice(bytes);
+    }
+    // The live file's cluster 7 holds something else entirely.
+    let off7 = cluster_byte_offset(7);
+    img[off7..off7 + CLUSTER].fill(0xEE);
+
+    let set = deleted_file_set("split.bin", 6, payload.len() as u64, false);
+    img[root_off + 32..root_off + 32 + set.len()].copy_from_slice(&set);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path = tmp.path().join("card.img");
+    std::fs::write(&img_path, &img).unwrap();
+    let out_dir = tmp.path().join("out");
+    let source = Source::open(&img_path).unwrap();
+    let vol = exfat::Volume::parse(&source, 0).unwrap();
+    let stats = vol
+        .recover_deleted(
+            &source,
+            &out_dir,
+            &unearth::recover::RecoverOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(std::fs::read(out_dir.join("split.bin")).unwrap(), payload);
+}

@@ -230,6 +230,48 @@ impl Volume {
     /// contiguous, from the exFAT Allocation Bitmap (a `0x81` entry in the root
     /// directory points to it). A clear bit means the cluster is free, so
     /// carving those ranges recovers deleted data without re-finding live files.
+    /// The allocation bitmap, read once: one bit per cluster from cluster 2,
+    /// set when allocated. `None` when the root directory has no bitmap entry.
+    fn read_bitmap(&self, src: &Source) -> Result<Option<Vec<u8>>> {
+        let root = self.read_directory(src, self.root_cluster, None, false)?;
+        let mut bitmap_loc: Option<(u32, u64)> = None;
+        for e in root.chunks_exact(ENTRY_SIZE) {
+            match e[0] {
+                0x00 => break, // end of directory
+                0x81 if e[1] & 0x01 == 0 => {
+                    let first = u32::from_le_bytes([e[20], e[21], e[22], e[23]]);
+                    let len = u64::from_le_bytes([
+                        e[24], e[25], e[26], e[27], e[28], e[29], e[30], e[31],
+                    ]);
+                    bitmap_loc = Some((first, len));
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let Some((first, len)) = bitmap_loc else {
+            return Ok(None);
+        };
+        if first < 2 || first > self.max_valid_cluster() {
+            return Ok(None);
+        }
+        const MAX_BITMAP: u64 = 256 * 1024 * 1024;
+        let mut bitmap = vec![0u8; len.min(MAX_BITMAP) as usize];
+        let n = src.read_at(self.cluster_offset(first), &mut bitmap)?;
+        bitmap.truncate(n);
+        Ok(Some(bitmap))
+    }
+
+    /// Whether the bitmap marks `cluster` allocated. Past the bitmap's end
+    /// counts as allocated, so a short read never invites a blind read.
+    fn cluster_allocated(bitmap: &[u8], cluster: u32) -> bool {
+        let i = cluster.saturating_sub(2) as usize;
+        bitmap
+            .get(i / 8)
+            .map(|b| b & (1 << (i % 8)) != 0)
+            .unwrap_or(true)
+    }
+
     pub fn free_extents(&self, src: &Source) -> Result<Vec<(u64, u64)>> {
         // The Allocation Bitmap is described by a directory entry in the root.
         let root = self.read_directory(src, self.root_cluster, None, false)?;
@@ -294,6 +336,10 @@ impl Volume {
         self.walk(src, &mut deleted)?;
 
         let mut stats = RecoverStats::default();
+        // The allocation bitmap, read once: a deleted file's chain may be
+        // gone, but the clusters still allocated to other files say where it
+        // cannot be.
+        let bitmap = self.read_bitmap(src).unwrap_or(None);
         for df in deleted {
             if !opts.size_ok(df.data_length) {
                 continue;
@@ -312,7 +358,7 @@ impl Volume {
                 stats.record_recovered(df.path.clone(), df.data_length, None);
                 continue;
             }
-            match self.write_file(src, out_dir, &df) {
+            match self.write_file(src, out_dir, &df, bitmap.as_deref()) {
                 Ok((written, digest)) if written > 0 || df.data_length == 0 => {
                     stats.record_recovered(df.path.clone(), df.data_length, Some(digest))
                 }
@@ -353,6 +399,7 @@ impl Volume {
         src: &Source,
         out_dir: &Path,
         df: &DeletedFile,
+        bitmap: Option<&[u8]>,
     ) -> Result<(u64, [u8; 32])> {
         let target = unique_path(out_dir, &df.path);
         if let Some(parent) = target.parent() {
@@ -367,12 +414,21 @@ impl Volume {
         } else {
             match self.copy_chain(src, df, &mut out)? {
                 w if w >= df.data_length => w,
-                // Chain was incomplete (likely freed by the delete); restart as
-                // a contiguous read, which is the best remaining guess. A fresh
-                // file and hasher discard the partial chain's bytes.
+                // Chain was incomplete (freed by the delete). Restart from the
+                // first cluster, stepping over clusters the bitmap still shows
+                // allocated to live files: a file written into the gaps
+                // between them comes back whole that way (the corpus's
+                // `fragmented` scenario). A fresh file and hasher discard the
+                // partial chain's bytes.
                 _ => {
                     out = HashingWriter::new(fs::File::create(&target)?);
-                    self.copy_contiguous(src, df.first_cluster, df.data_length, &mut out)?
+                    self.copy_skipping_allocated(
+                        src,
+                        df.first_cluster,
+                        df.data_length,
+                        bitmap,
+                        &mut out,
+                    )?
                 }
             }
         };
@@ -403,6 +459,62 @@ impl Volume {
             out.write_all(&buf[..n])?;
             remaining -= n as u64;
             pos += n as u64;
+        }
+        Ok(len - remaining)
+    }
+
+    /// Read `len` bytes from `first_cluster` onward, skipping any cluster the
+    /// bitmap marks allocated (without a bitmap this is a contiguous read).
+    fn copy_skipping_allocated(
+        &self,
+        src: &Source,
+        first_cluster: u32,
+        len: u64,
+        bitmap: Option<&[u8]>,
+        out: &mut impl Write,
+    ) -> Result<u64> {
+        let cb = self.cluster_bytes();
+        let max = self.max_valid_cluster();
+        let mut remaining = len;
+        let mut cluster = first_cluster;
+        let mut buf = vec![0u8; cb as usize];
+        // Allocators wrap to the start of the volume when they reach the end,
+        // so a file that began in the last free stretch continues in the first
+        // free gap. Follow that once; never below the first cluster twice.
+        let mut wrapped = false;
+        while remaining > 0 && cluster >= 2 {
+            if cluster > max {
+                if wrapped || bitmap.is_none() {
+                    break;
+                }
+                wrapped = true;
+                cluster = 2;
+                if let Some(bitmap) = bitmap {
+                    while cluster < first_cluster && Self::cluster_allocated(bitmap, cluster) {
+                        cluster += 1;
+                    }
+                }
+                if cluster >= first_cluster {
+                    break;
+                }
+            }
+            let want = remaining.min(cb) as usize;
+            let n = src.read_at(self.cluster_offset(cluster), &mut buf[..want])?;
+            if n == 0 {
+                break;
+            }
+            out.write_all(&buf[..n])?;
+            remaining -= n as u64;
+            cluster += 1;
+            if let Some(bitmap) = bitmap {
+                let stop = if wrapped { first_cluster } else { max + 1 };
+                while cluster < stop && Self::cluster_allocated(bitmap, cluster) {
+                    cluster += 1;
+                }
+                if wrapped && cluster >= first_cluster {
+                    break;
+                }
+            }
         }
         Ok(len - remaining)
     }
@@ -654,4 +766,30 @@ fn sanitize_component(name: &str) -> String {
 /// Build a non-colliding output path by appending a counter if needed.
 fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
     crate::recover::unique_path(out_dir, rel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bitmap_bits_are_cluster_minus_two_lsb_first() {
+        // Bit 0 of byte 0 is cluster 2; bit 3 of byte 1 is cluster 13.
+        let bitmap = [0b0000_0001u8, 0b0000_1000];
+        assert!(Volume::cluster_allocated(&bitmap, 2));
+        assert!(!Volume::cluster_allocated(&bitmap, 3));
+        assert!(Volume::cluster_allocated(&bitmap, 13));
+        assert!(!Volume::cluster_allocated(&bitmap, 12));
+        // Past the bitmap counts as allocated: never a blind read.
+        assert!(Volume::cluster_allocated(&bitmap, 18));
+        assert!(Volume::cluster_allocated(&bitmap, 1_000_000));
+        // Cluster numbers below 2 do not underflow.
+        let _ = Volume::cluster_allocated(&bitmap, 0);
+    }
+
+    #[test]
+    fn sanitize_goes_through_the_shared_rules() {
+        assert_eq!(sanitize_component("a/b"), "a_b");
+        assert_eq!(sanitize_component(""), "_recovered");
+    }
 }

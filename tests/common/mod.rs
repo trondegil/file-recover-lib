@@ -596,3 +596,72 @@ pub fn fat32_highword_volume(name8: &[u8; 8], ext3: &[u8; 3], payload: &[u8]) ->
     v[e + 28..e + 32].copy_from_slice(&(payload.len() as u32).to_le_bytes());
     v
 }
+
+/// A bare FAT32 volume holding one deleted file whose data is not contiguous:
+/// it occupies `data_clusters` in order, and every cluster between them is
+/// allocated to a live file in the FAT (a chain of end-of-chain marks). The
+/// deleted file's own chain is cleared, as a FAT driver leaves it. With
+/// `wrap`, the file starts in the last cluster and continues from the first
+/// free one, the way a next-fit allocator lays out a file written into the
+/// last free stretch.
+pub fn fat32_fragmented_volume(
+    name8: &[u8; 8],
+    ext3: &[u8; 3],
+    payload: &[u8],
+    wrap: bool,
+) -> Vec<u8> {
+    const BPS: usize = 512;
+    const RESERVED: usize = 32;
+    const FAT_SECTORS: usize = 512;
+    const DATA_CLUSTERS: usize = 65530;
+    const TOTAL: usize = RESERVED + FAT_SECTORS + DATA_CLUSTERS;
+    let first_data = RESERVED + FAT_SECTORS;
+    let root_cluster = 2usize;
+    let last_cluster = DATA_CLUSTERS + 1;
+
+    let mut v = vec![0u8; TOTAL * BPS];
+    v[0] = 0xEB;
+    v[11..13].copy_from_slice(&(BPS as u16).to_le_bytes());
+    v[13] = 1;
+    v[14..16].copy_from_slice(&(RESERVED as u16).to_le_bytes());
+    v[16] = 1;
+    v[32..36].copy_from_slice(&(TOTAL as u32).to_le_bytes());
+    v[36..40].copy_from_slice(&(FAT_SECTORS as u32).to_le_bytes());
+    v[44..48].copy_from_slice(&(root_cluster as u32).to_le_bytes());
+    v[510] = 0x55;
+    v[511] = 0xAA;
+    let fat_base = RESERVED * BPS;
+    let eoc = 0x0FFF_FFFFu32.to_le_bytes();
+    let mut allocate = |c: usize| v[fat_base + c * 4..fat_base + c * 4 + 4].copy_from_slice(&eoc);
+    allocate(root_cluster);
+
+    // Data clusters, in file order, and the live clusters that sit between them.
+    let (data_clusters, live): (Vec<usize>, Vec<usize>) = if wrap {
+        (vec![last_cluster, 3, 4, 6], vec![5])
+    } else {
+        (vec![3, 5, 6, 9], vec![4, 7, 8])
+    };
+    for &c in &live {
+        allocate(c);
+    }
+    let cluster_off = |c: usize| (first_data + (c - 2)) * BPS;
+    for (i, chunk) in payload.chunks(BPS).enumerate() {
+        let off = cluster_off(data_clusters[i]);
+        v[off..off + chunk.len()].copy_from_slice(chunk);
+    }
+    for &c in &live {
+        let off = cluster_off(c);
+        v[off..off + BPS].fill(0xEE);
+    }
+
+    let e = cluster_off(root_cluster);
+    v[e..e + 8].copy_from_slice(name8);
+    v[e + 8..e + 11].copy_from_slice(ext3);
+    v[e] = 0xE5;
+    v[e + 11] = 0x20;
+    let start = data_clusters[0] as u32;
+    v[e + 20..e + 22].copy_from_slice(&((start >> 16) as u16).to_le_bytes());
+    v[e + 26..e + 28].copy_from_slice(&((start & 0xFFFF) as u16).to_le_bytes());
+    v[e + 28..e + 32].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+    v
+}

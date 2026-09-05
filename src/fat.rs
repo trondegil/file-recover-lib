@@ -405,6 +405,9 @@ impl Volume {
 
         let mut stats = RecoverStats::default();
         let volume_end = self.offset + self.total_sectors as u64 * self.bytes_per_sector as u64;
+        // The FAT, read once: a deleted file's own chain is gone, but the
+        // clusters still allocated to other files tell where it cannot be.
+        let fat = self.load_fat(src);
 
         for df in deleted {
             if !opts.size_ok(df.size as u64) {
@@ -421,8 +424,10 @@ impl Volume {
                 stats.record_skipped(df.path.clone(), df.size as u64);
                 continue;
             }
-            let start = self.cluster_offset(df.start_cluster);
-            if start + df.size as u64 > volume_end {
+            // A file that starts near the end of the volume is not implausible:
+            // the allocator wraps, and so does the read below. Only a size no
+            // volume of this size could hold is rejected.
+            if df.size as u64 > volume_end - self.offset {
                 stats.record_skipped(df.path.clone(), df.size as u64);
                 continue;
             }
@@ -431,7 +436,7 @@ impl Volume {
                 stats.record_recovered(df.path.clone(), df.size as u64, None);
                 continue;
             }
-            match self.write_file(src, out_dir, &df) {
+            match self.write_file(src, out_dir, &df, fat.as_deref()) {
                 Ok((_, digest)) => {
                     stats.record_recovered(df.path.clone(), df.size as u64, Some(digest))
                 }
@@ -441,13 +446,55 @@ impl Volume {
         Ok(stats)
     }
 
-    /// Stream a recovered file to disk under `out_dir`, assuming contiguous
-    /// data. Returns the number of bytes written and their SHA-256 digest.
+    /// The first FAT, in memory, or `None` if it is implausibly large or
+    /// unreadable (recovery then falls back to contiguous reads).
+    fn load_fat(&self, src: &Source) -> Option<Vec<u8>> {
+        const MAX_FAT: u64 = 64 * 1024 * 1024;
+        let bytes = self.fat_size_sectors as u64 * self.bytes_per_sector as u64;
+        if bytes == 0 || bytes > MAX_FAT {
+            return None;
+        }
+        let mut fat = vec![0u8; bytes as usize];
+        let base = self.offset + self.reserved_sectors as u64 * self.bytes_per_sector as u64;
+        let n = src.read_at(base, &mut fat).ok()?;
+        fat.truncate(n);
+        Some(fat)
+    }
+
+    /// Whether `cluster` is free according to an in-memory FAT. Anything past
+    /// the table counts as allocated, so a truncated FAT never invites a read
+    /// into the unknown.
+    fn cluster_is_free(&self, fat: &[u8], cluster: u32) -> bool {
+        let c = cluster as usize;
+        let entry = match self.fat_type {
+            FatType::Fat32 => fat
+                .get(c * 4..c * 4 + 4)
+                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & 0x0FFF_FFFF),
+            FatType::Fat16 => fat
+                .get(c * 2..c * 2 + 2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]) as u32),
+            FatType::Fat12 => fat.get(c * 3 / 2..c * 3 / 2 + 2).map(|b| {
+                let raw = u16::from_le_bytes([b[0], b[1]]);
+                (if c & 1 == 0 { raw & 0x0FFF } else { raw >> 4 }) as u32
+            }),
+        };
+        entry == Some(0)
+    }
+
+    /// Stream a recovered file to disk under `out_dir`. The file's own cluster
+    /// chain was cleared when it was deleted, so its data is read from its
+    /// start cluster onward, skipping clusters the FAT shows still allocated to
+    /// other files: a deleted file cannot occupy those, and stepping over them
+    /// reassembles a file that was written into the gaps between live ones
+    /// (the real-image corpus's `fragmented` scenario went from 1 of 4 to 4
+    /// of 4). Without a FAT the read is plain contiguous. Returns the number
+    /// of bytes written and their SHA-256 digest.
     fn write_file(
         &self,
         src: &Source,
         out_dir: &Path,
         df: &DeletedFile,
+        fat: Option<&[u8]>,
     ) -> Result<(u64, [u8; 32])> {
         let target = unique_path(out_dir, &df.path);
         if let Some(parent) = target.parent() {
@@ -457,20 +504,51 @@ impl Volume {
             fs::File::create(&target).with_context(|| format!("creating {}", target.display()))?;
         let mut out = HashingWriter::new(file);
 
+        let cb = self.cluster_bytes();
+        let max = self.max_valid_cluster();
         let mut remaining = df.size as u64;
-        let mut pos = self.cluster_offset(df.start_cluster);
-        // Size the copy buffer to the file, capped at 1 MiB.
-        let buf_len = (df.size as usize).clamp(1, 1024 * 1024);
-        let mut buf = vec![0u8; buf_len];
-        while remaining > 0 {
-            let want = (remaining as usize).min(buf.len());
-            let n = src.read_at(pos, &mut buf[..want])?;
+        let mut cluster = df.start_cluster;
+        let mut buf = vec![0u8; cb as usize];
+        // Allocators hand out clusters from a moving pointer and wrap to the
+        // start of the volume when they hit the end, so a file that began in
+        // the last free stretch continues in the first free gap. Follow that
+        // once; never below the start cluster a second time.
+        let mut wrapped = false;
+        while remaining > 0 && cluster >= 2 {
+            if cluster > max {
+                if wrapped || fat.is_none() {
+                    break;
+                }
+                wrapped = true;
+                cluster = 2;
+                if let Some(fat) = fat {
+                    while cluster < df.start_cluster && !self.cluster_is_free(fat, cluster) {
+                        cluster += 1;
+                    }
+                }
+                if cluster >= df.start_cluster {
+                    break;
+                }
+            }
+            let want = remaining.min(cb) as usize;
+            let n = src.read_at(self.cluster_offset(cluster), &mut buf[..want])?;
             if n == 0 {
                 break;
             }
             out.write_all(&buf[..n])?;
             remaining -= n as u64;
-            pos += n as u64;
+            // Next cluster: the following one that is not allocated to a
+            // live file.
+            cluster += 1;
+            if let Some(fat) = fat {
+                let stop = if wrapped { df.start_cluster } else { max + 1 };
+                while cluster < stop && !self.cluster_is_free(fat, cluster) {
+                    cluster += 1;
+                }
+                if wrapped && cluster >= df.start_cluster {
+                    break;
+                }
+            }
         }
         out.flush().ok();
         let (out, digest) = out.into_parts();
