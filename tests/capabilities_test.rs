@@ -7,7 +7,10 @@ use unearth::recover;
 #[test]
 fn readme_feature_matrix_matches_the_code() {
     let readme =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+        // Git may check the README out with CRLF endings on Windows.
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))
+            .unwrap()
+            .replace("\r\n", "\n");
     let start = readme
         .find("<!-- capability-matrix:start -->\n")
         .expect("README has the capability-matrix start marker");
