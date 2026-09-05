@@ -1035,6 +1035,13 @@ Common to both strategies:
 - FAT and exFAT: a folder that was deleted as a whole is followed into, so the
   files inside come back under the folder's name (with the same `_` caveat for
   a short-named folder), as long as the folder's clusters have not been reused.
+  Windows leaves those files looking live inside the dead folder; they are
+  treated as deleted all the same.
+- FAT32 only: Windows zeroes the high half of a deleted entry's start cluster,
+  so on a volume with more than 65,536 clusters the file's location is
+  ambiguous. The right cluster is picked from the free candidates by the
+  content's type, then by the longest free run, which is right for the usual
+  contiguous file but can still miss.
 - NTFS: a file deleted by Windows keeps its name in the MFT record. The Linux
   `ntfs3` driver strips the name but leaves the data runs; such files are
   recovered under `_unnamed/mft-<record>.<ext>`, with the extension identified

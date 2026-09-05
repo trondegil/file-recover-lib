@@ -437,11 +437,12 @@ impl Volume {
     /// Walk live directories from the root, collecting deleted files.
     fn walk(&self, src: &Source, out: &mut Vec<DeletedFile>) -> Result<()> {
         let mut visited: HashSet<u32> = HashSet::new();
-        // (first cluster, byte length or None, contiguous?, path, depth)
-        let mut stack: Vec<(u32, Option<u64>, bool, PathBuf, usize)> =
-            vec![(self.root_cluster, None, false, PathBuf::new(), 0)];
+        // (first cluster, byte length or None, contiguous?, path, depth,
+        // whether the directory itself is deleted)
+        let mut stack: Vec<(u32, Option<u64>, bool, PathBuf, usize, bool)> =
+            vec![(self.root_cluster, None, false, PathBuf::new(), 0, false)];
 
-        while let Some((cluster, len, contiguous, path, depth)) = stack.pop() {
+        while let Some((cluster, len, contiguous, path, depth, deleted_dir)) = stack.pop() {
             if !visited.insert(cluster) {
                 continue;
             }
@@ -454,7 +455,10 @@ impl Volume {
                 // tree marks its entries deleted before the folder itself, and
                 // the folder's clusters keep them until reused. The stream
                 // extension survives deletion, so the length and the
-                // contiguity flag still say how to read it.
+                // contiguity flag still say how to read it. Windows discards
+                // the children's markers with the folder, so under a deleted
+                // folder every entry counts as deleted.
+                let gone = item.deleted || deleted_dir;
                 if item.is_dir {
                     if depth < MAX_DIR_DEPTH
                         && item.first_cluster >= 2
@@ -468,9 +472,10 @@ impl Volume {
                             item.no_fat_chain,
                             child,
                             depth + 1,
+                            gone,
                         ));
                     }
-                } else if item.deleted {
+                } else if gone {
                     out.push(DeletedFile {
                         path: path.join(sanitize_component(&item.name)),
                         first_cluster: item.first_cluster,

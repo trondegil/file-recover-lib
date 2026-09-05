@@ -466,6 +466,28 @@ pub fn fat32_deleted_dir_volume(
     ext3: &[u8; 3],
     payload: &[u8],
 ) -> Vec<u8> {
+    fat32_deleted_dir_volume_impl(dir8, name8, ext3, payload, true)
+}
+
+/// As [`fat32_deleted_dir_volume`], but the file entry inside the deleted
+/// folder still looks live: Windows frees a folder's cluster without writing
+/// back the deletion markers of the files it just removed from it.
+pub fn fat32_windows_deleted_dir_volume(
+    dir8: &[u8; 8],
+    name8: &[u8; 8],
+    ext3: &[u8; 3],
+    payload: &[u8],
+) -> Vec<u8> {
+    fat32_deleted_dir_volume_impl(dir8, name8, ext3, payload, false)
+}
+
+fn fat32_deleted_dir_volume_impl(
+    dir8: &[u8; 8],
+    name8: &[u8; 8],
+    ext3: &[u8; 3],
+    payload: &[u8],
+    mark_child_deleted: bool,
+) -> Vec<u8> {
     const BPS: usize = 512;
     const RESERVED: usize = 32;
     const FAT_SECTORS: usize = 512;
@@ -520,9 +542,57 @@ pub fn fat32_deleted_dir_volume(
         file_cluster,
         payload.len() as u32,
     );
-    v[dir + 64] = 0xE5;
+    if mark_child_deleted {
+        v[dir + 64] = 0xE5;
+    }
 
     let data = cluster_off(file_cluster);
     v[data..data + payload.len()].copy_from_slice(payload);
+    v
+}
+
+/// A FAT32 volume with more than 65,536 clusters holding one deleted file
+/// whose data sits at cluster 65,540 — but whose entry, as Windows leaves it,
+/// records only the low 16 bits (cluster 4). Cluster 4 itself is allocated to
+/// something else, so the FAT alone points at the right place.
+pub fn fat32_highword_volume(name8: &[u8; 8], ext3: &[u8; 3], payload: &[u8]) -> Vec<u8> {
+    const BPS: usize = 512;
+    const RESERVED: usize = 32;
+    const FAT_SECTORS: usize = 520;
+    const DATA_CLUSTERS: usize = 66000;
+    const TOTAL: usize = RESERVED + FAT_SECTORS + DATA_CLUSTERS;
+    let first_data = RESERVED + FAT_SECTORS;
+    let root_cluster = 2usize;
+    let real_cluster = 65_540usize;
+
+    let mut v = vec![0u8; TOTAL * BPS];
+    v[0] = 0xEB;
+    v[11..13].copy_from_slice(&(BPS as u16).to_le_bytes());
+    v[13] = 1;
+    v[14..16].copy_from_slice(&(RESERVED as u16).to_le_bytes());
+    v[16] = 1;
+    v[32..36].copy_from_slice(&(TOTAL as u32).to_le_bytes());
+    v[36..40].copy_from_slice(&(FAT_SECTORS as u32).to_le_bytes());
+    v[44..48].copy_from_slice(&(root_cluster as u32).to_le_bytes());
+    v[510] = 0x55;
+    v[511] = 0xAA;
+    let fat_base = RESERVED * BPS;
+    let eoc = 0x0FFF_FFFFu32.to_le_bytes();
+    v[fat_base + root_cluster * 4..fat_base + root_cluster * 4 + 4].copy_from_slice(&eoc);
+    // The low-half cluster is in use by a live file, so it is not a candidate.
+    v[fat_base + 4 * 4..fat_base + 4 * 4 + 4].copy_from_slice(&eoc);
+
+    let cluster_off = |c: usize| (first_data + (c - 2)) * BPS;
+    let data = cluster_off(real_cluster);
+    v[data..data + payload.len()].copy_from_slice(payload);
+
+    let e = cluster_off(root_cluster);
+    v[e..e + 8].copy_from_slice(name8);
+    v[e + 8..e + 11].copy_from_slice(ext3);
+    v[e] = 0xE5;
+    v[e + 11] = 0x20;
+    v[e + 20..e + 22].copy_from_slice(&0u16.to_le_bytes()); // high half zeroed
+    v[e + 26..e + 28].copy_from_slice(&((real_cluster & 0xFFFF) as u16).to_le_bytes());
+    v[e + 28..e + 32].copy_from_slice(&(payload.len() as u32).to_le_bytes());
     v
 }
