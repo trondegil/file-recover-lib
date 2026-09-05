@@ -841,11 +841,11 @@
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     }
   ],
-  "release": null,
+  "release": "corpus-v1",
   "tarball": {
-    "name": null,
-    "sha256": null,
-    "url": null
+    "name": "unearth-corpus-v1.tar.gz",
+    "sha256": "d29f0320594b16c70137b2b47b429ce9791f1bae21a286dc8e8cf62af43fc2b1",
+    "url": "https://github.com/trondegil/file-recover-lib/releases/download/corpus-v1/unearth-corpus-v1.tar.gz"
   },
   "version": 1
 }

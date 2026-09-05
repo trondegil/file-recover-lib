@@ -27,6 +27,7 @@ SHA="$($TOOL sha256 "corpus/$TARBALL" | cut -d' ' -f1)"
 URL="https://github.com/$REPO_SLUG/releases/download/$TAG/$TARBALL"
 
 gh release create "$TAG" "corpus/$TARBALL" \
+    --repo "$REPO_SLUG" \
     --title "Test corpus $TAG" \
     --notes "Real-filesystem test images for tests/corpus_test.rs. See corpus/README.md. SHA-256: $SHA"
 
