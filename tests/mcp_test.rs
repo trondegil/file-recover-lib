@@ -8,6 +8,15 @@ use std::io::Cursor;
 use unearth::json::{self, Json};
 use unearth::mcp;
 
+/// A path as it must appear inside a JSON string literal: Windows paths carry
+/// backslashes, which JSON reads as escapes.
+fn j(p: &std::path::Path) -> String {
+    p.display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
 /// Feed newline-delimited JSON-RPC requests through the server and return the
 /// parsed responses (in order).
 fn session(requests: &[&str]) -> Vec<Json> {
@@ -78,8 +87,8 @@ fn full_session_initializes_and_scans() {
     // `scan` starts a background job and returns a job_id.
     let scan_req = format!(
         r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"scan","arguments":{{"source":"{}","output_dir":"{}"}}}}}}"#,
-        img.display(),
-        out.display()
+        j(&img),
+        j(&out)
     );
     let started = call(&scan_req);
     let job_id = started.get("job_id").unwrap().as_u64().unwrap();
@@ -125,7 +134,7 @@ fn full_session_initializes_and_scans() {
     // Triage the output directory: one jpg file, no duplicates.
     let tr = format!(
         r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"triage","arguments":{{"dir":"{}"}}}}}}"#,
-        out.display()
+        j(&out)
     );
     let triage = tool_result(&session(&[&tr])[0]);
     assert_eq!(triage.get("total_files").unwrap().as_u64(), Some(1));
@@ -155,8 +164,8 @@ fn image_runs_as_a_background_job() {
     // `image` starts a background job and returns a job_id.
     let image_req = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"image","arguments":{{"source":"{}","output":"{}","sparse":false}}}}}}"#,
-        img.display(),
-        out.display()
+        j(&img),
+        j(&out)
     );
     let started = call(&image_req);
     let job_id = started.get("job_id").unwrap().as_u64().unwrap();
@@ -229,12 +238,12 @@ fn list_volumes_and_undelete_tools() {
 
     let lv = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"list_volumes","arguments":{{"source":"{}","deleted":true}}}}}}"#,
-        img.display()
+        j(&img)
     );
     let und = format!(
         r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"undelete","arguments":{{"source":"{}","output_dir":"{}"}}}}}}"#,
-        img.display(),
-        out.display()
+        j(&img),
+        j(&out)
     );
     let resps = session(&[&lv, &und]);
 
@@ -280,7 +289,7 @@ fn list_volumes_and_undelete_tools() {
     let recovered_path = out.join("notes.txt");
     let rf = format!(
         r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"read_file","arguments":{{"path":"{}"}}}}}}"#,
-        recovered_path.display()
+        j(&recovered_path)
     );
     let resps = session(&[&rf]);
     let read = tool_result(&resps[0]);
@@ -310,11 +319,11 @@ fn list_volumes_scan_finds_a_lost_partition() {
     // Without scan: nothing found.
     let plain = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"list_volumes","arguments":{{"source":"{}"}}}}}}"#,
-        path.display()
+        j(&path)
     );
     let scanned = format!(
         r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"list_volumes","arguments":{{"source":"{}","scan":true}}}}}}"#,
-        path.display()
+        j(&path)
     );
     let resps = session(&[&plain, &scanned]);
 
@@ -351,7 +360,7 @@ fn list_volumes_reports_the_partition_table() {
 
     let lv = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"list_volumes","arguments":{{"source":"{}"}}}}}}"#,
-        path.display()
+        j(&path)
     );
     let result = tool_result(&session(&[&lv])[0]);
     assert_eq!(
