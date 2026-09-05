@@ -281,9 +281,14 @@ impl Parser {
             self.pos += 1;
         }
         let s: String = self.chars[start..self.pos].iter().collect();
-        s.parse::<f64>()
-            .map(Json::Num)
-            .map_err(|_| format!("invalid number '{s}'"))
+        let n: f64 = s.parse().map_err(|_| format!("invalid number '{s}'"))?;
+        // JSON has no infinities or NaN; `1e310` must be an error, not a value
+        // that then serializes as `inf` and cannot be read back (found by
+        // fuzzing).
+        if !n.is_finite() {
+            return Err(format!("number out of range '{s}'"));
+        }
+        Ok(Json::Num(n))
     }
 
     fn string(&mut self) -> Result<String, String> {
@@ -438,6 +443,13 @@ mod tests {
         assert!(parse(&ok).is_ok());
         let too_deep = "[".repeat(129) + &"]".repeat(129);
         assert!(parse(&too_deep).is_err());
+    }
+
+    #[test]
+    fn rejects_numbers_that_do_not_fit() {
+        assert!(parse("1e310").is_err());
+        assert!(parse("-1e999").is_err());
+        assert!(parse("1e308").is_ok());
     }
 
     #[test]

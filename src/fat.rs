@@ -211,9 +211,17 @@ impl Volume {
             total_sectors_32
         };
 
-        let root_dir_sectors = (root_entry_count * 32).div_ceil(bytes_per_sector);
-        let first_data_sector = reserved_sectors + num_fats * fat_size_sectors + root_dir_sectors;
-        let first_root_dir_sector = reserved_sectors + num_fats * fat_size_sectors;
+        // Every field here comes straight off the disk; saturate so a garbage
+        // BPB fails the range check below instead of overflowing (found by
+        // fuzzing).
+        let root_dir_sectors = root_entry_count
+            .saturating_mul(32)
+            .div_ceil(bytes_per_sector);
+        let fat_region = num_fats.saturating_mul(fat_size_sectors);
+        let first_data_sector = reserved_sectors
+            .saturating_add(fat_region)
+            .saturating_add(root_dir_sectors);
+        let first_root_dir_sector = reserved_sectors.saturating_add(fat_region);
 
         if total_sectors < first_data_sector {
             bail!("invalid BPB (data region before first data sector) at offset {offset}");
