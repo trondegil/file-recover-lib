@@ -213,9 +213,13 @@ one had passed the synthetic test suite.
 
 Known gaps the baselines document rather than hide:
 
-- FAT and exFAT undelete assume contiguous files, so the `fragmented`
-  scenario recovers one of four (the contiguous control). This is item 1 of
-  roadmap step 5.
+- FAT and exFAT undelete reassemble a deleted file around clusters still
+  allocated to live files, and follow the allocator's wrap to the first free
+  gap, so the `fragmented` scenario recovers 3 of 4 on Linux FAT32, 2 of 4
+  on macOS and Windows FAT32, and 4 of 4 on Linux and Windows exFAT (whose
+  drivers leave the chain intact). The misses are files whose next free
+  cluster belonged to a neighbour deleted after them, which only
+  format-aware validation can settle (roadmap step 5, item 1, second half).
 - ext4 scan recall on `fragmented` is 0 and undelete is now 4 of 4: carving
   cannot reassemble fragments, metadata can.
 - HFS+ names come back in the decomposed Unicode form the catalog stores

@@ -232,3 +232,46 @@ fn recovers_a_file_past_cluster_65535_with_the_high_word_zeroed() {
     assert_eq!(stats.recovered, 1);
     assert_eq!(std::fs::read(out.join("_ATA.BIN")).unwrap(), payload);
 }
+
+fn recover_one(img: Vec<u8>) -> Vec<u8> {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("fat.img");
+    std::fs::write(&p, &img).unwrap();
+    let src = unearth::source::Source::open(&p).unwrap();
+    let vols = unearth::recover::detect(&src).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vols[0]
+        .recover_deleted(&src, &out, &unearth::recover::RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    std::fs::read(out.join("_ILE.BIN")).unwrap()
+}
+
+/// A deleted file written into the gaps between live files comes back whole:
+/// the FAT says which clusters still belong to live files, and the read steps
+/// over them. The file's own chain was cleared by the delete.
+#[test]
+fn reassembles_a_file_written_around_live_clusters() {
+    let payload: Vec<u8> = (0..(4 * 512 - 7) as u32).map(|i| (i % 253) as u8).collect();
+    let got = recover_one(common::fat32_fragmented_volume(
+        b"FILE    ",
+        b"BIN",
+        &payload,
+        false,
+    ));
+    assert_eq!(got, payload);
+}
+
+/// A file that started in the last free stretch of the volume continues in
+/// the first free gap, as a next-fit allocator lays it out.
+#[test]
+fn follows_the_allocator_wrap_to_the_start_of_the_volume() {
+    let payload: Vec<u8> = (0..(4 * 512 - 7) as u32).map(|i| (i % 249) as u8).collect();
+    let got = recover_one(common::fat32_fragmented_volume(
+        b"FILE    ",
+        b"BIN",
+        &payload,
+        true,
+    ));
+    assert_eq!(got, payload);
+}

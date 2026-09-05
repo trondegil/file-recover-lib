@@ -767,7 +767,7 @@ const CAP_FAT: Capability = cap(
     Yes,
     Yes,
     Partial,
-    "contiguous files only; deleted folders followed; Windows' zeroed high cluster word recovered",
+    "a file written around live files is reassembled from the FAT, including one that wrapped to the volume start; not one whose neighbour was deleted after it. Deleted folders followed; Windows' zeroed high cluster word recovered",
 );
 const CAP_EXFAT: Capability = cap(
     "exFAT",
@@ -775,7 +775,7 @@ const CAP_EXFAT: Capability = cap(
     Yes,
     Yes,
     Partial,
-    "contiguous files only; deleted folders followed",
+    "a surviving FAT chain is followed; otherwise reassembled around allocated clusters from the bitmap, with the same limit as FAT. Deleted folders followed",
 );
 const CAP_NTFS: Capability = cap(
     "NTFS",

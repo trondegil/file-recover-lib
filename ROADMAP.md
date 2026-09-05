@@ -286,6 +286,21 @@ What to do.
 Done when. Each item has corpus images demonstrating the new capability and
 the feature matrix updates from "no" or "partial" to "yes".
 
+Status (September 2026). Item 1, first approach, is in: a deleted FAT or
+exFAT file is read from its start cluster skipping clusters the FAT or
+bitmap still shows allocated to live files, and follows the allocator's
+wrap to the first free gap once. On the corpus's `fragmented` images that
+took FAT32 from 1 of 4 to 3 of 4 (Linux) and 2 of 4 (macOS, Windows);
+exFAT on Linux and Windows was already 4 of 4 because their drivers leave
+the chain intact, and macOS exFAT stays at 1 of 4. What remains is the
+second approach: the misses are files whose next free cluster belonged to
+a neighbour deleted *after* them (or to their own deleted AppleDouble
+companion on macOS), which no allocation map can attribute, so only
+format-aware validation of each candidate cluster (JPEG first) can settle
+them. Item 2 has begun: fragmented-file and Windows-behaviour integration
+tests for both, and a first unit-test module in exFAT. Items 3 to 6 are
+untouched.
+
 ## Step 6. Build the end-user application
 
 Goal. A person who has never opened a terminal can recover their files.

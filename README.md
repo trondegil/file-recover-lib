@@ -115,8 +115,8 @@ by `unearth info --features --markdown`; a test fails if this copy drifts.
 <!-- capability-matrix:start -->
 | Filesystem | Detect | List volumes | Undelete | Fragmented files | Notes |
 |---|---|---|---|---|---|
-| FAT12/16/32 | yes | yes | yes | partial | contiguous files only; deleted folders followed; Windows' zeroed high cluster word recovered |
-| exFAT | yes | yes | yes | partial | contiguous files only; deleted folders followed |
+| FAT12/16/32 | yes | yes | yes | partial | a file written around live files is reassembled from the FAT, including one that wrapped to the volume start; not one whose neighbour was deleted after it. Deleted folders followed; Windows' zeroed high cluster word recovered |
+| exFAT | yes | yes | yes | partial | a surviving FAT chain is followed; otherwise reassembled around allocated clusters from the bitmap, with the same limit as FAT. Deleted folders followed |
 | NTFS | yes | yes | yes | yes | files deleted by Linux ntfs3 lose their name and land in _unnamed/ |
 | ext2/3/4 | yes | yes | yes | yes | names and extents come from the journal on modern kernels; gone once it wraps |
 | HFS+/HFSX | yes | yes | yes | yes | records come from the journal on macOS-formatted disks; names are in decomposed Unicode |
