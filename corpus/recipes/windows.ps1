@@ -43,6 +43,15 @@ function Invoke-Diskpart([string]$Script) {
     if ($LASTEXITCODE -ne 0) { throw "diskpart failed:`n$out" }
 }
 
+# Create a file's parent folder if needed. New-Item refuses to "create" a
+# drive root such as Q:\, so only act when the parent is actually missing.
+function Ensure-Parent([string]$Path) {
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+}
+
 function Apply-Plan([string]$Mount, [string]$Stage, [string]$Plan) {
     foreach ($line in Get-Content -LiteralPath $Plan -Encoding UTF8) {
         if ($line -eq "" -or $line.StartsWith("#")) { continue }
@@ -51,12 +60,12 @@ function Apply-Plan([string]$Mount, [string]$Stage, [string]$Plan) {
         switch ($f[0]) {
             "copy" {
                 $dst = Join-Path $Mount $rel
-                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+                Ensure-Parent $dst
                 Copy-Item -LiteralPath (Join-Path $Stage $rel) -Destination $dst
             }
             "fill" {
                 $dst = Join-Path $Mount $rel
-                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+                Ensure-Parent $dst
                 try { Copy-Item -LiteralPath (Join-Path $Stage $rel) -Destination $dst -ErrorAction Stop }
                 catch { Remove-Item -LiteralPath $dst -ErrorAction SilentlyContinue }
             }
