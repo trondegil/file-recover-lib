@@ -359,3 +359,64 @@ fn journal_header_is_not_a_font() {
     let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
     assert_eq!(stats.files_recovered, 1, "only the JPEG should carve");
 }
+
+/// The zero-run fast path must not jump over a magic whose leading bytes are
+/// zero: an icon (`00 00 01 00`) placed right at the end of a long run of
+/// zeros, and one straddling a 64-byte block boundary, must both still carve,
+/// as must an ordinary file after megabytes of zeros.
+#[test]
+fn zero_run_skipping_misses_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path: PathBuf = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    // A minimal real icon: header, one entry, a 40-byte DIB.
+    let mut ico = vec![0x00, 0x00, 0x01, 0x00, 0x01, 0x00];
+    ico.extend_from_slice(&[16, 16, 0, 0, 1, 0, 32, 0]);
+    ico.extend_from_slice(&(40u32 + 64).to_le_bytes());
+    ico.extend_from_slice(&22u32.to_le_bytes());
+    let mut dib = vec![0u8; 40];
+    dib[0..4].copy_from_slice(&40u32.to_le_bytes());
+    ico.extend_from_slice(&dib);
+    ico.extend_from_slice(&filler(3, 64));
+
+    let jpeg = make_jpeg(&filler(9, 5000));
+    let mut img = vec![0u8; 3 * 1024 * 1024];
+    // Icons at offsets that land the magic inside and across 64-byte blocks.
+    for &off in &[100_000usize, 200_061, 300_063] {
+        img[off..off + ico.len()].copy_from_slice(&ico);
+    }
+    let j = 2 * 1024 * 1024 + 777;
+    img[j..j + jpeg.len()].copy_from_slice(&jpeg);
+    std::fs::write(&img_path, &img).unwrap();
+
+    let source = Source::open(&img_path).unwrap();
+    let sigs = signatures::select(&["ico".to_string(), "jpg".to_string()]).unwrap();
+    let opts = CarveOptions {
+        output_dir: out_dir.clone(),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size: None,
+        max_files: None,
+        allow_nested: false,
+        validate: true,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run: false,
+        align: 1,
+    };
+    let stats = carver::carve(&source, &sigs, &opts, &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 4, "three icons and one JPEG");
+    let mut recovered: Vec<Vec<u8>> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+        .collect();
+    recovered.sort();
+    let mut originals = vec![ico.clone(), ico.clone(), ico, jpeg];
+    originals.sort();
+    assert_eq!(recovered, originals);
+}

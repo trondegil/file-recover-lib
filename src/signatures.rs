@@ -3012,6 +3012,10 @@ pub struct SignatureIndex<'a> {
     /// For each possible leading byte, the signatures whose magic starts with
     /// it. Most slots are empty, keeping per-byte work tiny.
     by_first_byte: [Vec<&'a Signature<'a>>; 256],
+    /// The most leading zero bytes any active magic has, or `None` when some
+    /// magic is entirely zeros. Lets the scan skip runs of zero bytes: inside
+    /// a block of `B` zeros no magic can start before the last `max` bytes.
+    max_leading_zeros: Option<usize>,
     /// A 65536-bit set (one bit per two-byte magic prefix) that gates the hot
     /// scan loop: for a byte position whose first two bytes are not the prefix
     /// of any magic, one bitset lookup rejects it without walking a `by_first_byte`
@@ -3032,10 +3036,21 @@ impl<'a> SignatureIndex<'a> {
         // 65536 bits = 1024 u64 words = 8 KiB, small enough to stay L1-resident.
         let mut prefix_bits = vec![0u64; 1024];
         let mut mark = |p: usize| prefix_bits[p >> 6] |= 1u64 << (p & 63);
+        // The most leading zero bytes in any magic; `None` if some magic is
+        // all zeros (then a zero run could hold a match anywhere).
+        let max_leading_zeros = active
+            .iter()
+            .map(|sig| {
+                let lz = sig.magic.iter().take_while(|&&b| b == 0).count();
+                (lz < sig.magic.len()).then_some(lz)
+            })
+            .collect::<Option<Vec<usize>>>()
+            .map(|v| v.into_iter().max().unwrap_or(0));
         let mut idx = SignatureIndex {
             by_first_byte,
             prefix_bits: Box::new([]),
             max_lookahead: 0,
+            max_leading_zeros,
         };
         for sig in active {
             let first = sig.magic[0] as usize;
@@ -3061,6 +3076,16 @@ impl<'a> SignatureIndex<'a> {
     /// Return the signature whose magic (and secondary tag, if any) matches the
     /// bytes starting at `window`. `window` must begin at the on-disk position
     /// of a candidate magic.
+    /// How far the scan may jump when it sees a block of `block` zero bytes
+    /// at the current position: no active magic can start in the first
+    /// `block - max_leading_zeros` of them. `None` when some magic is all
+    /// zeros, in which case nothing can be skipped.
+    pub fn zero_skip(&self, block: usize) -> Option<usize> {
+        self.max_leading_zeros
+            .filter(|&lz| lz < block)
+            .map(|lz| block - lz)
+    }
+
     pub fn match_at(&self, window: &[u8]) -> Option<&'a Signature<'a>> {
         let &first = window.first()?;
         // Fast reject: if the two-byte prefix at this position isn't the start of

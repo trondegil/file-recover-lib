@@ -128,6 +128,8 @@ pub fn carve_seeded(
 
     let index = SignatureIndex::build(active);
     let max_magic_offset = active.iter().map(|s| s.magic_offset).max().unwrap_or(0);
+    const ZERO_BLOCK: usize = 64;
+    let zero_skip = index.zero_skip(ZERO_BLOCK);
     // Carry over enough bytes so a magic straddling a chunk boundary is still
     // matched, and so we can subtract magic_offset to find the file start.
     let overlap = index.max_lookahead + max_magic_offset as usize;
@@ -189,6 +191,21 @@ pub fn carve_seeded(
 
         let mut i = 0usize;
         while i < scan_limit {
+            // Empty space is mostly zeros, and a 64-byte block of zeros cannot
+            // start any magic except in its last few bytes. Jumping over such
+            // blocks makes unused space nearly free to scan: measured on a
+            // sparse 2 TB image, the per-byte loop was the bottleneck, not the
+            // disk.
+            if buf[i] == 0 {
+                if let Some(skip) = zero_skip {
+                    if i + ZERO_BLOCK <= scan_limit
+                        && buf[i..i + ZERO_BLOCK].iter().all(|&b| b == 0)
+                    {
+                        i += skip;
+                        continue;
+                    }
+                }
+            }
             let magic_abs = abs + i as u64;
             if let Some(sig) = index.match_at(&buf[i..n]) {
                 let file_start = magic_abs.wrapping_sub(sig.magic_offset);
