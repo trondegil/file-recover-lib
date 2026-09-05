@@ -281,7 +281,10 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
         let want_name = want.rsplit('/').next().unwrap_or(want).to_lowercase();
         undeleted.iter().any(|(p, _)| {
             let got = p.rsplit('/').next().unwrap_or(p).to_lowercase();
-            got == want_name || (got.len() == want_name.len() && got[1..] == want_name[1..])
+            // Compare by character: names are not ASCII.
+            got == want_name
+                || (got.chars().count() == want_name.chars().count()
+                    && got.chars().skip(1).eq(want_name.chars().skip(1)))
         })
     };
 
