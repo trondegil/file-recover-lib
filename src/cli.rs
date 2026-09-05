@@ -292,8 +292,19 @@ pub struct RecoverArgs {
 #[derive(Parser)]
 pub struct InfoArgs {
     /// Source to inspect: a disk image file or a block device. Opened read-only.
-    #[arg(value_name = "SOURCE")]
-    pub source: PathBuf,
+    #[arg(value_name = "SOURCE", required_unless_present = "features")]
+    pub source: Option<PathBuf>,
+
+    /// Print the feature matrix — for every filesystem, whether the tool can
+    /// detect it, list its volumes, undelete from it, and reassemble fragmented
+    /// files — instead of inspecting a source. Add `--json` for JSON or
+    /// `--markdown` for the table the README carries.
+    #[arg(long)]
+    pub features: bool,
+
+    /// With `--features`: emit the matrix as a Markdown table.
+    #[arg(long, requires = "features")]
+    pub markdown: bool,
 
     /// Also count recoverable deleted files in each volume (runs a dry scan).
     #[arg(long)]

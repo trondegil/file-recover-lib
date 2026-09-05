@@ -102,6 +102,76 @@ The trade-off is that carving cannot restore original **filenames** or
 directory structure — recovered files are named by their type and the byte
 offset where they were found.
 
+## What the tool can do, by filesystem
+
+One row per filesystem the tool recognises. *Undelete* means restoring
+deleted files with their names from the filesystem's own metadata;
+*fragmented files* means reassembling a file whose data is not in one
+contiguous run. "no" under undelete means `scan` (signature carving) is the
+only way in. Every "yes" under undelete has real-image corpus images
+behind it (see `corpus/README.md`), and the table is generated from the code
+by `unearth info --features --markdown`; a test fails if this copy drifts.
+
+<!-- capability-matrix:start -->
+| Filesystem | Detect | List volumes | Undelete | Fragmented files | Notes |
+|---|---|---|---|---|---|
+| FAT12/16/32 | yes | yes | yes | partial | contiguous files only; deleted folders followed; Windows' zeroed high cluster word recovered |
+| exFAT | yes | yes | yes | partial | contiguous files only; deleted folders followed |
+| NTFS | yes | yes | yes | yes | files deleted by Linux ntfs3 lose their name and land in _unnamed/ |
+| ext2/3/4 | yes | yes | yes | yes | names and extents come from the journal on modern kernels; gone once it wraps |
+| HFS+/HFSX | yes | yes | yes | yes | records come from the journal on macOS-formatted disks; names are in decomposed Unicode |
+| APFS | yes | yes | no | no | copy-on-write; use scan |
+| Btrfs | yes | yes | no | no | copy-on-write; use scan |
+| ReFS | yes | yes | no | no | use scan |
+| XFS | yes | yes | no | no | use scan |
+| F2FS | yes | yes | no | no | use scan |
+| ReiserFS | yes | yes | no | no | use scan |
+| JFS | yes | yes | no | no | use scan |
+| NILFS2 | yes | yes | no | no | use scan |
+| GFS2 | yes | yes | no | no | use scan |
+| OCFS2 | yes | yes | no | no | use scan |
+| Minix | yes | yes | no | no | use scan |
+| bcachefs | yes | yes | no | no | use scan |
+| BeFS | yes | yes | no | no | use scan |
+| UFS | yes | yes | no | no | use scan |
+| EROFS | yes | yes | no | no | read-only image format; use scan |
+| cramfs | yes | yes | no | no | read-only image format; use scan |
+| romfs | yes | yes | no | no | read-only image format; use scan |
+| LVM physical volume | yes | yes | no | no | container; scan, or activate the volume group and recover the logical volumes |
+| Linux RAID member | yes | yes | no | no | container; scan, or assemble the array first |
+| HFS (Mac OS Standard) | yes | yes | no | no | use scan |
+| Linux swap | yes | yes | no | no | no files; scan for what was paged out |
+| BitLocker / LUKS | yes | yes | no | no | detected only; unlock the volume first, then recover from the decrypted device |
+| UDF | yes | yes | no | no | optical media; use scan |
+| ISO 9660 | yes | yes | no | no | read-only media; use scan |
+<!-- capability-matrix:end -->
+
+`undelete` on a source with only detect-only volumes says so and exits
+non-zero rather than reporting zero files as if nothing was there.
+
+## If you have just lost files: the short version
+
+1. **Stop using the drive.** Every write, including the operating system's
+   own housekeeping, can land on the sectors your files still occupy. Do not
+   install anything on it, do not let it fill a browser cache, and do not
+   run a repair tool on it.
+2. **Image it first.** `unearth image /dev/rdisk2 card.img` copies the whole
+   device once, read-only and tolerant of bad sectors (see [Image a failing
+   drive first](#image-a-failing-drive-first-recommended)). Every later step
+   reads the image, so the drive is never touched again.
+3. **Undelete, then scan.** `unearth undelete card.img -o recovered` brings
+   back files with their names and exact sizes where the filesystem still
+   knows them. `unearth scan card.img -o carved` then carves by signature
+   whatever the metadata could not name. `unearth recover` does both in one
+   pass. Check the `confidence` column in the manifest: `verified` files had
+   their header checked and their length came from the format; `plausible`
+   ones matched a magic and a format length; `truncated` ones were cut at a
+   size cap and may carry a wrong tail.
+4. **Never write recovered files to the drive you are recovering from.** The
+   tool refuses when it can tell (a device source whose filesystem holds the
+   output directory); it cannot tell in every case, so pick an output
+   directory on another disk yourself.
+
 ## Safety
 
 - The source device/image is opened **read-only**; the tool only ever issues

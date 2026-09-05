@@ -550,6 +550,50 @@ fn corpus_recall() {
             failures.push(format!("{}: {tf}", entry.name));
         }
     }
+    // Every "yes" under undelete in the feature matrix must have at least one
+    // real image behind it that recovers something by metadata.
+    let mut ran: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+    for entry in &lock.images {
+        if let Ok(text) = fs::read_to_string(&entry.expected) {
+            if let Ok(doc) = json::parse(&text) {
+                let fs_name = str_field(&doc, "filesystem").unwrap_or_default();
+                let recall = match doc.get("baseline").and_then(|b| b.get("undelete")) {
+                    Some(Json::Num(n)) => *n,
+                    _ => 0.0,
+                };
+                let best = ran.entry(fs_name).or_insert(0.0);
+                if recall > *best {
+                    *best = recall;
+                }
+            }
+        }
+    }
+    for cap in unearth::recover::capability_matrix() {
+        if cap.undelete != unearth::recover::Support::Yes {
+            continue;
+        }
+        // Matrix names to corpus filesystem tags.
+        let tags: &[&str] = match cap.filesystem {
+            "FAT12/16/32" => &["fat32", "fat16", "fat12"],
+            "exFAT" => &["exfat"],
+            "NTFS" => &["ntfs"],
+            "ext2/3/4" => &["ext4", "ext3", "ext2"],
+            "HFS+/HFSX" => &["hfsplus"],
+            other => panic!("no corpus tag for matrix row {other}"),
+        };
+        let best = tags
+            .iter()
+            .filter_map(|t| ran.get(*t))
+            .cloned()
+            .fold(0.0, f64::max);
+        if best <= 0.0 {
+            failures.push(format!(
+                "{}: the feature matrix says undelete is supported, but no corpus image with a recorded undelete baseline above zero backs it",
+                cap.filesystem
+            ));
+        }
+    }
+
     eprintln!();
     if skipped > 0 {
         eprintln!(

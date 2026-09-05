@@ -146,3 +146,34 @@ fn info_cli_lists_an_apfs_volume() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("APFS"), "stdout: {stdout}");
 }
+
+/// `undelete` on a source whose only volume is detect-only must say so and
+/// exit non-zero: "0 files, exit 0" would read as "nothing to recover".
+#[test]
+fn undelete_cli_refuses_a_detect_only_volume_with_a_hint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img = tmp.path().join("c.img");
+    std::fs::write(&img, apfs_container(4096, 8)).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_unearth"))
+        .args([
+            "undelete",
+            img.to_str().unwrap(),
+            "-o",
+            tmp.path().join("out").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "detect-only undelete must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unearth scan"),
+        "must point at scan: {stderr}"
+    );
+    assert!(
+        stderr.contains("info --features"),
+        "must point at the matrix: {stderr}"
+    );
+}
