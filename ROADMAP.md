@@ -134,8 +134,13 @@ size probed by reading; a permission failure prints the fix for the
 platform; recovered names are made Windows-safe on Windows; and the release
 workflow recovers a corpus image with each native binary before uploading
 it (`corpus/smoke.sh`). Still open: item 5 (the corpus does not yet assert
-restored timestamps) and the human end-to-end run with a physical USB stick
-on each platform, which no CI can stand in for.
+restored timestamps).
+
+OUTSTANDING (deferred, September 2026): the human end-to-end run with a
+physical USB stick on each of the three platforms, following only the
+README. No CI can stand in for it. Until it is done, Step 2 is not closed
+and the raw-device paths (`/dev/rdiskN`, `\\.\PhysicalDriveN`) have been
+exercised only by their unit tests, not by a real disk.
 
 ## Step 3. Harden the engine
 
