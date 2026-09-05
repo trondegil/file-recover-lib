@@ -7,6 +7,7 @@
     {
       "carvable": true,
       "expect": "intact",
+      "mtime": 1710496800,
       "path": "file-01-0.jpg",
       "sha256": "0a0d17962792c4f311c793c9af6073f0f564bfb38d2d423b66e5be9159a4ffd9",
       "size": 21951
@@ -14,6 +15,7 @@
     {
       "carvable": true,
       "expect": "intact",
+      "mtime": 1710497349,
       "path": "projects/2024/q1/file-10-0.bmp",
       "sha256": "3a40611433d1c3ca3357b41ddac006fb78f74b035b2547a1035453213c32af7e",
       "size": 150695
@@ -21,6 +23,7 @@
     {
       "carvable": true,
       "expect": "intact",
+      "mtime": 1710497410,
       "path": "projects/2024/q1/file-11-1.pdf",
       "sha256": "c0622932dd535f8944f7b4753d5af767d34ba386d3d9cd2688802eab8649166a",
       "size": 274035
@@ -28,6 +31,7 @@
     {
       "carvable": true,
       "expect": "intact",
+      "mtime": 1710497471,
       "path": "projects/2024/q1/file-12-2.wav",
       "sha256": "e3b0b420b109cced3ad8893cc20f2d0cb75208839ee81342b78391c2fb8fdffe",
       "size": 413989
@@ -35,6 +39,7 @@
     {
       "carvable": false,
       "expect": "intact",
+      "mtime": 1710498020,
       "path": "projects/archive/old/file-21-2.bin",
       "sha256": "79ae15f8c1dd60aabd118f71cf268f965521901c2d47854be15bbeec32249eea",
       "size": 247455
@@ -43,7 +48,7 @@
   "filesystem": "fat32",
   "image": {
     "file": "windows-fat32-deeptree.vhd",
-    "sha256": "9df2e2dd1b9e3b5710dc50d6ec475fab16516ec9f61c70e58ccd87ab0db4c5ec",
+    "sha256": "42754f0e7c64fd5b854319c09113748c734699400ffdb1f300869199c5c4bc2c",
     "size": 67109376
   },
   "live_files": 16,

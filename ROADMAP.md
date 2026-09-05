@@ -133,8 +133,11 @@ reads use `seek_read` on Windows; a device that refuses `SEEK_END` has its
 size probed by reading; a permission failure prints the fix for the
 platform; recovered names are made Windows-safe on Windows; and the release
 workflow recovers a corpus image with each native binary before uploading
-it (`corpus/smoke.sh`). Still open: item 5 (the corpus does not yet assert
-restored timestamps).
+it (`corpus/smoke.sh`). Item 5 is in place too: every corpus file is staged
+with a distinct modification time, and the corpus test checks each file
+recovered by name for it on all three platforms (exact on NTFS, ext4, and
+HFS+; to a whole number of quarter hours on FAT and exFAT, which store local
+time with no zone).
 
 OUTSTANDING (deferred, September 2026): the human end-to-end run with a
 physical USB stick on each of the three platforms, following only the

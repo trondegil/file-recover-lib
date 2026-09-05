@@ -8,7 +8,7 @@
       "name": "linux-exfat-baseline",
       "platform": "linux",
       "scenario": "baseline",
-      "sha256": "af6a9549ad04945d7122de5768046f9a24b5dc1b46e269e2ef085b9550804f7a",
+      "sha256": "0052b5ab5a210e5fc1367675ed526ab4ac5efb33705310ab0a0e8e9cc3a8b7e0",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -20,7 +20,7 @@
       "name": "linux-exfat-deeptree",
       "platform": "linux",
       "scenario": "deeptree",
-      "sha256": "d7dd455720934115c38299513bf7b6d2df033aa11fccb68ce49020d1d457ed3d",
+      "sha256": "e1c5cda3524a00380957ef961a593b87ad1b41347d6b9c9681d2aa1a5c1c6142",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -32,7 +32,7 @@
       "name": "linux-exfat-fragmented",
       "platform": "linux",
       "scenario": "fragmented",
-      "sha256": "33d7c76e707f05cd04fb97f63a3cf60517519a9a50c790d58f41e0982898a78c",
+      "sha256": "6a34cf06fc634249ff7129a61653fa8c124fa15768569600446093a53b70cddb",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -44,7 +44,7 @@
       "name": "linux-exfat-longnames",
       "platform": "linux",
       "scenario": "longnames",
-      "sha256": "76edc6a4714bf4a32cfcdbb2f04e4bf16ddff0006f7035e0d1a9d1fc5bb7ed86",
+      "sha256": "b448e0ad12714b9621cb0f2e3d157af800fc2d1c22e62ee3c275ab8b1290775f",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -56,7 +56,7 @@
       "name": "linux-exfat-nearlyfull",
       "platform": "linux",
       "scenario": "nearlyfull",
-      "sha256": "b348660dd95cfd4d5c1b38be202c729c9a64592c05f32fe921a4b968485cfb48",
+      "sha256": "bc57c7096bf635da8c8cb5f6ef2bdc01e8cc3e2d30d178a36d88bcb590ed1a17",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -68,7 +68,7 @@
       "name": "linux-exfat-nonascii",
       "platform": "linux",
       "scenario": "nonascii",
-      "sha256": "f981c8fca5aae009c115d853f15948172c47f673013e91d10ca98f394d86f21f",
+      "sha256": "72719177722d14121eb65af442c1b2fdf65252a062b2fdf9435457c4b9d4caea",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -80,7 +80,7 @@
       "name": "linux-exfat-overwritten",
       "platform": "linux",
       "scenario": "overwritten",
-      "sha256": "9c9466bbba95e39ff3051baa7bb93bbc4dddbf3ff0ee0947457dc46911771429",
+      "sha256": "7681d8b75a15a41e8dc4bc7c049e972b22c7a3dd66b80b2e888038ffffe49135",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
     },
@@ -92,7 +92,7 @@
       "name": "linux-ext4-baseline",
       "platform": "linux",
       "scenario": "baseline",
-      "sha256": "8d61d0e792db7a714511338abe8e3c8a709c3e3137cfbad965f8a28085a01548",
+      "sha256": "b59ab7508b0306b86fda36a40d5a4b0fb7ba475abedb02d5ed9373d7b2516823",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -104,7 +104,7 @@
       "name": "linux-ext4-deeptree",
       "platform": "linux",
       "scenario": "deeptree",
-      "sha256": "e4fe3ffcd00b09cacac4db547d512356bb9c0086a9b9d3809141da986d9ef19e",
+      "sha256": "c48856e4c3f73dbb54b745b0c0037b293f7390be0d1f7a1ebba8b7bf9fef4805",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -116,7 +116,7 @@
       "name": "linux-ext4-fragmented",
       "platform": "linux",
       "scenario": "fragmented",
-      "sha256": "cdb822bd744310080b06c5c4f6c16a3ab98718f1d244022e1ff320c7b846e505",
+      "sha256": "ec2a195287fcc53e82ab256f70a038a4aaa675069f215110ffbcc5a23dd46a8e",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -128,7 +128,7 @@
       "name": "linux-ext4-longnames",
       "platform": "linux",
       "scenario": "longnames",
-      "sha256": "d1ccfc31f76efd01d4a831fba7fc5679c12541de3bd8d5163c8d3ab460089487",
+      "sha256": "4c942819ddd9834e457b2e219c1fe44acd4fb15f7b7bfc4bdf2deeab41401244",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -140,7 +140,7 @@
       "name": "linux-ext4-nearlyfull",
       "platform": "linux",
       "scenario": "nearlyfull",
-      "sha256": "f7861f200201aa30dd368392de065bce3753a28e5633e46a1352600bf36090ea",
+      "sha256": "faced4f92dc860dd7d67504972e3133e6018fe9f93ba90c00bf557190e51ff42",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -152,7 +152,7 @@
       "name": "linux-ext4-nonascii",
       "platform": "linux",
       "scenario": "nonascii",
-      "sha256": "b0d4b32f3ca72279bc476d2e2b54259c03ed9d0a5ab3c0d78d5f01f1bbe9663f",
+      "sha256": "c0ff15b60f94bd3081baf8f5378ae14ac4765000cc01e30572fcf7e2fac034ca",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -164,7 +164,7 @@
       "name": "linux-ext4-overwritten",
       "platform": "linux",
       "scenario": "overwritten",
-      "sha256": "8b71398ceff15399a277193660349be4b8ebef3dab7d6a76518b66f22275ccb3",
+      "sha256": "b0a8e576d4c0202ef7a6eee852d728f8c820d4e2f7a76152bd3270b1f12f9413",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"
     },
@@ -176,7 +176,7 @@
       "name": "linux-fat32-baseline",
       "platform": "linux",
       "scenario": "baseline",
-      "sha256": "7c30185b1fba55c4719b1798a0d5662d1e65259b8c7ec8b688f23c340e120538",
+      "sha256": "82e379d558fd5d1a48dfb1009f82fc57389860a66d61870173c6f760c358be44",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -188,7 +188,7 @@
       "name": "linux-fat32-deeptree",
       "platform": "linux",
       "scenario": "deeptree",
-      "sha256": "7b68c6e1e70e4ab2a035e12cc64835056765c97efee156c98b87d36e78385a12",
+      "sha256": "3b9f7183458539b723a8264d11a4b29a89b930ff11143b765b0a74fcf7e7dbed",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -200,7 +200,7 @@
       "name": "linux-fat32-fragmented",
       "platform": "linux",
       "scenario": "fragmented",
-      "sha256": "e6f915427af3b4d5e0f027094c1a88cb04bfc154d33c68694f65b3567e7716b8",
+      "sha256": "f2fc1b27dc0c69c19c10cffe9ae9ceff923d1b5223843ef81c5597a6b42866b6",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -212,7 +212,7 @@
       "name": "linux-fat32-longnames",
       "platform": "linux",
       "scenario": "longnames",
-      "sha256": "42eef919d1dff8b9b3732e015a4636ad1fed40abc071a70f939cfd9183142715",
+      "sha256": "c658523be8c61ae9194c931bf6aae7c5f42f7725e2c04a87915829aac4d9ad5c",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -224,7 +224,7 @@
       "name": "linux-fat32-nearlyfull",
       "platform": "linux",
       "scenario": "nearlyfull",
-      "sha256": "d7e14e76d5db084578dfa07cdbc3fe30d2b7052fe637b87ca40834f0c89438cc",
+      "sha256": "9ed6a8bf3ad80e1bebac50384bfe3b386a4eb78893e09a3626c0a1b56e3349f4",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -236,7 +236,7 @@
       "name": "linux-fat32-nonascii",
       "platform": "linux",
       "scenario": "nonascii",
-      "sha256": "15dbca2d7900e48ee06d3a9960acf84cffb61dabddaafac280d78ce2d9cd9ed3",
+      "sha256": "d1a4a90d867fcb0ebd6bf460b0a657e6f69b93fa9930404a5549c247e9e63b41",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -248,7 +248,7 @@
       "name": "linux-fat32-overwritten",
       "platform": "linux",
       "scenario": "overwritten",
-      "sha256": "875d6682cc99e95528b9a803b73d7b7aaa277ada86f2c2990935dea4fc503964",
+      "sha256": "49ec4b824baa58b6b16259adc8a572764304eee272ffc62d170c67f5a7f177ff",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit Usage: mkfs.fat [OPTIONS] TARGET [BLOCKS]"
     },
@@ -260,7 +260,7 @@
       "name": "linux-ntfs-baseline",
       "platform": "linux",
       "scenario": "baseline",
-      "sha256": "bd8c1db67c94e1152b38f5418ce99b55258192f09f408c5c9ef6d0f59ab64031",
+      "sha256": "b00425e58931c8da89e7dd752228104f4ae0932575578fee2da46d369e3c8eb2",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -272,7 +272,7 @@
       "name": "linux-ntfs-deeptree",
       "platform": "linux",
       "scenario": "deeptree",
-      "sha256": "18849d1c3366ed11bcc775fc4bae605e64989bd48912dad727e424276f9face5",
+      "sha256": "51a3d9115199a4d5a2fe86e996e0dd9781bc7d1e19babba76a529874d7bfbc7d",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -284,7 +284,7 @@
       "name": "linux-ntfs-fragmented",
       "platform": "linux",
       "scenario": "fragmented",
-      "sha256": "81cb1644112e8ef9edc86e6cd5ee2d441ff23895b6d8c14b95a785f10ae44a09",
+      "sha256": "f87b526d2d7a98bb175d572113b0daa560bf538d26769adba4db498f086b12b5",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -296,7 +296,7 @@
       "name": "linux-ntfs-longnames",
       "platform": "linux",
       "scenario": "longnames",
-      "sha256": "e3c14c569f0d3e1a4d0612a881aadca2992ec1e1a25a93972c751d9275ebbfaa",
+      "sha256": "665cb4a649ff7cf0b6e5cb37d1acb2808d2f48705a238862c51690e3c082bc60",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -308,7 +308,7 @@
       "name": "linux-ntfs-nearlyfull",
       "platform": "linux",
       "scenario": "nearlyfull",
-      "sha256": "7dc007c97fbd68ed1e53d9778be8a1c16e19ce2280070004c2b61872c2f77f73",
+      "sha256": "12ca5fec198df50379846dbb40302ba8f79a178f562c14d643283250551dda9d",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -320,7 +320,7 @@
       "name": "linux-ntfs-nonascii",
       "platform": "linux",
       "scenario": "nonascii",
-      "sha256": "3a6a4a93a4c931ec3baea38d888a4c84ceb0d97e6e6020d034ebb22f3b6db5f2",
+      "sha256": "bcf1cd81e9f60c4e3c3c65b1f71cca7f8c3fce023acec14b4817e2c1fe2dc787",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -332,7 +332,7 @@
       "name": "linux-ntfs-overwritten",
       "platform": "linux",
       "scenario": "overwritten",
-      "sha256": "ffa0ff4fa3a012823cabbb27ab32d7aba13b8776cd771ebbb6a3520f0019d490",
+      "sha256": "a5f2e18198da63415ab70833b65402384efa2909695aa87e2905895f536017de",
       "size": 67108864,
       "source": "Linux 7.0.12-linuxkit mkfs.ntfs (ntfs-3g; stopgap for Windows format)"
     },
@@ -344,7 +344,7 @@
       "name": "macos-exfat-baseline",
       "platform": "macos",
       "scenario": "baseline",
-      "sha256": "352b00df73f81334eadb9c830ea4200896f52ec03dab2b668c10d8f75c420efd",
+      "sha256": "1bad9ad6622e99bd5f359b667704c1204005f55bd1d275cdf08749159b049e8a",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -356,7 +356,7 @@
       "name": "macos-exfat-deeptree",
       "platform": "macos",
       "scenario": "deeptree",
-      "sha256": "be1aae58020c8275c0701a35aeade9c74c996b5c9cdc34dc8e0fa836f1702969",
+      "sha256": "8707face1b5b936ade5ec9461c78daad035569199ec7d27f3894064503d1867b",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -368,7 +368,7 @@
       "name": "macos-exfat-fragmented",
       "platform": "macos",
       "scenario": "fragmented",
-      "sha256": "7c3c3bf455f865f0d58a0877035733833d588e82ab6771cc905730b873813341",
+      "sha256": "c482f67df1f901977a02b5af64c8b21235f08deec6982cb9615b23e0078dcad7",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -380,7 +380,7 @@
       "name": "macos-exfat-longnames",
       "platform": "macos",
       "scenario": "longnames",
-      "sha256": "ad1fb284e6dca36016b8a24f4c237c4ae1b0997c74095b77beb4da7ca4643bf9",
+      "sha256": "86e73c4a5f632fd42c518e7e9d909a8c5690844ad5df6d9817aa924708d31697",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -392,7 +392,7 @@
       "name": "macos-exfat-nearlyfull",
       "platform": "macos",
       "scenario": "nearlyfull",
-      "sha256": "571ccb02d0924f05919832f7c85614612f080b0ba77edb551222545f7c643c67",
+      "sha256": "fd42b75f41638d391486c05b5e1ee50c6a1de0309c15c72fb4903e2168ffb151",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -404,7 +404,7 @@
       "name": "macos-exfat-nonascii",
       "platform": "macos",
       "scenario": "nonascii",
-      "sha256": "0c419d75ca624cb121c4a0dd5d99dc2e34e39a2668cc9459bf669c7de4658359",
+      "sha256": "889eafa8e78f337bef5c333b193865638ce144d4f8338752ce353f56cfe0183d",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -416,7 +416,7 @@
       "name": "macos-exfat-overwritten",
       "platform": "macos",
       "scenario": "overwritten",
-      "sha256": "41208dd972b7c790602d6017c1781436a48790bd16458735266327178afe5c88",
+      "sha256": "5b5cc9a761c1c6e7de043b630cb5d81d1f6c31a64f068e9339e54e9532f9aeca",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -428,7 +428,7 @@
       "name": "macos-fat32-baseline",
       "platform": "macos",
       "scenario": "baseline",
-      "sha256": "133c18556369030bf5e46003beb92291ff82b7cd916313e8a705f8340de3d085",
+      "sha256": "f385d8ce150e089357a717f50d435fecdf71b0eb59f0bfae36c077c67247dcda",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -440,7 +440,7 @@
       "name": "macos-fat32-deeptree",
       "platform": "macos",
       "scenario": "deeptree",
-      "sha256": "e2d1021b80f604bb81a77d35d55f642c641f8cfeb0f96dd427d433335650292e",
+      "sha256": "fef221981fc0b17f63c2333baf8017a27b6123405ad2aace8c84a6219ea9c165",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -452,7 +452,7 @@
       "name": "macos-fat32-fragmented",
       "platform": "macos",
       "scenario": "fragmented",
-      "sha256": "de30b25da4eff2b79ea4bdbf9ff225209eb7a8c08b798e0041eb88409f878d5b",
+      "sha256": "0baa57251ee74434ed8f0b52e3237778c90d5295867b802de525459a9ef317f7",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -464,7 +464,7 @@
       "name": "macos-fat32-longnames",
       "platform": "macos",
       "scenario": "longnames",
-      "sha256": "76ff960cc70309e97d2993060f1db7180edb3a2081659809119230c7996c9767",
+      "sha256": "226c7112ce27a5984ea677790d29b79ac51860c3b881219848f3d401f1e6039f",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -476,7 +476,7 @@
       "name": "macos-fat32-nearlyfull",
       "platform": "macos",
       "scenario": "nearlyfull",
-      "sha256": "8efc6340fa8c51f54f4ab099beca1a91240125a9311f725ccc4f12efb12374b0",
+      "sha256": "19af1170138f2d1a401cc66cd92d8f2ae5fe71308c48fab91e1b23b50a3f7820",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -488,7 +488,7 @@
       "name": "macos-fat32-nonascii",
       "platform": "macos",
       "scenario": "nonascii",
-      "sha256": "c02c71e247bab4b685c6992649e8a83741c4ca5c14bbb18d030599a10586e773",
+      "sha256": "bdb1708589fd31bcc05d2ddac924f52110ef900b7c907cb3473fdbf70c17e904",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -500,7 +500,7 @@
       "name": "macos-fat32-overwritten",
       "platform": "macos",
       "scenario": "overwritten",
-      "sha256": "a8d5deadb211bca8d4bd7f1f345766515a2c91d0ed6be13aaabc81a0b28e3f29",
+      "sha256": "49a9c5cea9ae47dee182450dc644dc557c16fa690be8df97a5ed9c98d1b1726f",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -512,7 +512,7 @@
       "name": "macos-hfsplus-baseline",
       "platform": "macos",
       "scenario": "baseline",
-      "sha256": "0458e528c899bef584ad54d9f35e82ab3a43df024f10ddc5ef9d50e19fb4cdf0",
+      "sha256": "eced033a1037ed06d47aa89b230714eb0967ebef65666f174b4b849dcb1b8726",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -524,7 +524,7 @@
       "name": "macos-hfsplus-deeptree",
       "platform": "macos",
       "scenario": "deeptree",
-      "sha256": "b825756e890296cbc5ee391bba5f140ae6614111bb3e3c540bf72f849237ce10",
+      "sha256": "8da9efb70ccde67b912f741ea2ef4cd864969c72d82fc2e95d6935890450344d",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -536,7 +536,7 @@
       "name": "macos-hfsplus-fragmented",
       "platform": "macos",
       "scenario": "fragmented",
-      "sha256": "cc6b73b06beb5d261e86ab8da526e8c9c5da89d9ff9158ac36100807f9bb0d8b",
+      "sha256": "c4fd44a8190e3f26a8508dd5a7073ebed1cb586f0e3e27a514f0c2ff428a9c3d",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -548,7 +548,7 @@
       "name": "macos-hfsplus-longnames",
       "platform": "macos",
       "scenario": "longnames",
-      "sha256": "51fa9da0dc494d6cdd300530599faf7eb219086cbd0c744d000319de263e1c57",
+      "sha256": "24e8416a1b84e792ad0eae154296ef129b75a69a339a397ba8954a41c64a7d9a",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -560,7 +560,7 @@
       "name": "macos-hfsplus-nearlyfull",
       "platform": "macos",
       "scenario": "nearlyfull",
-      "sha256": "4f320c2105baaa95615db19548689a92e57bd4677fa13f5620874ec04294a358",
+      "sha256": "bdbbe56de8cd83e355f8fa7b048d9ba5a79381ea88e9bb45305e49503377c92e",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -572,7 +572,7 @@
       "name": "macos-hfsplus-nonascii",
       "platform": "macos",
       "scenario": "nonascii",
-      "sha256": "1e9d422694c33994d72c7ad51ef567e7ff17d268119af2babcee4953f43ea607",
+      "sha256": "9bc6f8bd84c448b66ce011107cb0e48a1809e5b0f301d6bb286a8468fd02d322",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -584,7 +584,7 @@
       "name": "macos-hfsplus-overwritten",
       "platform": "macos",
       "scenario": "overwritten",
-      "sha256": "57bdd9c8cf30f303e4eb7a3959e47ea2099264580bca3212b8dad54b59ccd2ad",
+      "sha256": "257ac5739830da2137ed2e272737555b2811283a5410a0eee73478e58d3339ae",
       "size": 67108864,
       "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"
     },
@@ -596,7 +596,7 @@
       "name": "windows-exfat-baseline",
       "platform": "windows",
       "scenario": "baseline",
-      "sha256": "a6c946dd5a5ba38d58afd6ca72f7c46cba11295592098c2b23f49722bdb6287d",
+      "sha256": "d93c4da0bbfeb9c3ae9034669bf3a476ce06bbf65bae2a0436df77e0a595bff1",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -608,7 +608,7 @@
       "name": "windows-exfat-deeptree",
       "platform": "windows",
       "scenario": "deeptree",
-      "sha256": "a2bdfba530fe3a7ad47251eefb6ef4eeafcd106e82ff6ff5a984b4dcb46c5489",
+      "sha256": "08c2bfff1a15e5676619aabc8ad0c6bdd653938e45f7ad2c4913c23a61dd74a1",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -620,7 +620,7 @@
       "name": "windows-exfat-fragmented",
       "platform": "windows",
       "scenario": "fragmented",
-      "sha256": "fc0590449f8f1f523d9964051d28d137be66069258583d32620292cf9b69dadb",
+      "sha256": "5e78b540585175f36aa8cf5c77631e883cece80bb1975554613407ff9223a99b",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -632,7 +632,7 @@
       "name": "windows-exfat-longnames",
       "platform": "windows",
       "scenario": "longnames",
-      "sha256": "822e14360972a7c474127fe39b689945afa241a4db48f422739798c6722073d3",
+      "sha256": "f133caacaa0ece3245c7447a9a6784ad74c4b95c5687b85043b105eddbbbc6b2",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -644,7 +644,7 @@
       "name": "windows-exfat-nearlyfull",
       "platform": "windows",
       "scenario": "nearlyfull",
-      "sha256": "f34c885ecf77efc35a3c829e361952d1be9e12940eb8567827f5f998a4032fb9",
+      "sha256": "98cf41b3a9f0aa3e767e8521ff4ecaebec4bf8024d8fb4906b2d076256d42303",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -656,7 +656,7 @@
       "name": "windows-exfat-nonascii",
       "platform": "windows",
       "scenario": "nonascii",
-      "sha256": "066632a576ba0e7fd64b754df3e8b958ce3f5c6d36f78f858432b048d62bafb7",
+      "sha256": "fa98b9b593423f92ea29f360438be2694749f02454736fdfea681eea3f624a15",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -668,7 +668,7 @@
       "name": "windows-exfat-overwritten",
       "platform": "windows",
       "scenario": "overwritten",
-      "sha256": "b3aa10711d480909c2523b5615113bbf1f54bd57b3277ba602b3c7eabf2b343e",
+      "sha256": "050ed7f9b1810a5bb26e32feaff5f4c8f92ad6a10fba4c2714f34b4f74bd3ec2",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=exfat quick (fixed VHD)"
     },
@@ -680,7 +680,7 @@
       "name": "windows-fat32-baseline",
       "platform": "windows",
       "scenario": "baseline",
-      "sha256": "0f21204aa080439daa85ca409c784af4057760949ca111bbbc729800888e6362",
+      "sha256": "876f4dd4be83fe304c64394b21a6a7af77c9fa6d2656f1e1796aa42a398ce98b",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -692,7 +692,7 @@
       "name": "windows-fat32-deeptree",
       "platform": "windows",
       "scenario": "deeptree",
-      "sha256": "9df2e2dd1b9e3b5710dc50d6ec475fab16516ec9f61c70e58ccd87ab0db4c5ec",
+      "sha256": "42754f0e7c64fd5b854319c09113748c734699400ffdb1f300869199c5c4bc2c",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -704,7 +704,7 @@
       "name": "windows-fat32-fragmented",
       "platform": "windows",
       "scenario": "fragmented",
-      "sha256": "da45d85ceb5c08be5e1a080d353917ecabada8842f2c4e247fe903f155747974",
+      "sha256": "0b573c98777741d02949b3fc0d9a1cd42143b47adae3a406ac5528ddfda20a5e",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -716,7 +716,7 @@
       "name": "windows-fat32-longnames",
       "platform": "windows",
       "scenario": "longnames",
-      "sha256": "892325d926187fe84543cebead720fc4ca5a8489f9597d8ec05ecca94ca7b718",
+      "sha256": "3234a9d925171b20e98e88e8d13241fb4b1fb7e717b81ace8ebb446c675f2934",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -728,7 +728,7 @@
       "name": "windows-fat32-nearlyfull",
       "platform": "windows",
       "scenario": "nearlyfull",
-      "sha256": "f9dc87ae675a601c56551cacab5eb6d928db18d2a23a48a7b6a815bc9801845d",
+      "sha256": "7dd75b45f6255ea12c87fc29260f9045b69c6f3d314437b202cc165527d87ac2",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -740,7 +740,7 @@
       "name": "windows-fat32-nonascii",
       "platform": "windows",
       "scenario": "nonascii",
-      "sha256": "ec96de704ca84b7efbda27d7bef1356ac3d4ad8552f30f7fd60af7f185f7dfcb",
+      "sha256": "4c52cf0adf10f9137f7c97e285a1eeb694968583231755a62aec9e3c22303d4c",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -752,7 +752,7 @@
       "name": "windows-fat32-overwritten",
       "platform": "windows",
       "scenario": "overwritten",
-      "sha256": "cc2ead220b9e3d64d6dca0e32e5ed67963435541b86c3982b3a43429c1420c6f",
+      "sha256": "798d2072e810088b025b681b699583bc0fd586e5e0bb5c7995d4a32c9df4bc4d",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"
     },
@@ -764,7 +764,7 @@
       "name": "windows-ntfs-baseline",
       "platform": "windows",
       "scenario": "baseline",
-      "sha256": "23f9b29140e02bc67c1c9224154453d94d5d31224c07e74c50a4ae15c0f0eb6d",
+      "sha256": "9894655138789de0fc7a1720e14ba9de3d9c29508209cf611b1fb8c966915895",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     },
@@ -776,7 +776,7 @@
       "name": "windows-ntfs-deeptree",
       "platform": "windows",
       "scenario": "deeptree",
-      "sha256": "6dc505b5d2cbfc48def38d1842585ac25c6734d6b1af9fd9d7fcc407b0349906",
+      "sha256": "9c4f2d25db8929bfe88a0aae3ffbde109b4b429b7856aab532bfc9a7486e0a8c",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     },
@@ -788,7 +788,7 @@
       "name": "windows-ntfs-fragmented",
       "platform": "windows",
       "scenario": "fragmented",
-      "sha256": "0be3e37157fd18e00a0db36041887fa1d4a4c6cb11a5fa33facc9244ba79abf7",
+      "sha256": "e22f5bc363d48dcb60f2110b87b7c7024544d02610390db4a05bffceafc927a3",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     },
@@ -800,7 +800,7 @@
       "name": "windows-ntfs-longnames",
       "platform": "windows",
       "scenario": "longnames",
-      "sha256": "b2bfe98f31a91c7bcdd01c8bb082929a9ab23f9d1db302cf7fac50ceda07dd9f",
+      "sha256": "a4be83473099e2d3d8475ded2fcfb8d13cd2151735acc52fdc92f402bdf50bed",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     },
@@ -812,7 +812,7 @@
       "name": "windows-ntfs-nearlyfull",
       "platform": "windows",
       "scenario": "nearlyfull",
-      "sha256": "ddbb2c279aaeb881820b7c421c75d63ecf0efe8f1bded517192da08c6912d191",
+      "sha256": "9e816de71bc127a8b4fc873ebf53048f2f002ee12c445425796896d0f05cca2d",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     },
@@ -824,7 +824,7 @@
       "name": "windows-ntfs-nonascii",
       "platform": "windows",
       "scenario": "nonascii",
-      "sha256": "fa74d1908bea16b7c503d395e05b1a2aa6b0969886dcb9d04651713463972967",
+      "sha256": "90eeaabc1a37f185994d255ac89a37167b772651fa63f5ec218f744b36bec2c2",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     },
@@ -836,16 +836,16 @@
       "name": "windows-ntfs-overwritten",
       "platform": "windows",
       "scenario": "overwritten",
-      "sha256": "26c5882330bfc643662c47530622d8641733f7f45583cd9e932030d09a860c8b",
+      "sha256": "cc64607dea6af4f69ebe81bbb044f8dd3917710a614dfdb00756ca6bcc82f77d",
       "size": 67109376,
       "source": "Windows 10.0.26100 diskpart format fs=ntfs quick (fixed VHD)"
     }
   ],
-  "release": "corpus-v1",
+  "release": "corpus-v2",
   "tarball": {
-    "name": "unearth-corpus-v1.tar.gz",
-    "sha256": "d29f0320594b16c70137b2b47b429ce9791f1bae21a286dc8e8cf62af43fc2b1",
-    "url": "https://github.com/trondegil/file-recover-lib/releases/download/corpus-v1/unearth-corpus-v1.tar.gz"
+    "name": "unearth-corpus-v2.tar.gz",
+    "sha256": "6d1fa0401fb300cbf61cf56f05488ae6d4b7b78851597330349e8d7623fe7d4d",
+    "url": "https://github.com/trondegil/file-recover-lib/releases/download/corpus-v2/unearth-corpus-v2.tar.gz"
   },
   "version": 1
 }
