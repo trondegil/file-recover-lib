@@ -201,8 +201,9 @@
 /// How to determine the length of a carved file once its header is found.
 #[derive(Clone, Copy, Debug)]
 pub enum Extent {
-    /// Search forward for `marker`; the file ends `trailing` bytes after the
-    /// end of the marker.
+    /// Search forward for `marker`; the file ends at the end of the marker,
+    /// plus up to `trailing` CR/LF bytes for a format whose marker is
+    /// conventionally followed by a line ending (PDF's `%%EOF`).
     Footer {
         marker: &'static [u8],
         trailing: u64,
@@ -3095,7 +3096,14 @@ impl SignatureIndex {
 /// Returns an error listing the offending name if one is unknown.
 pub fn select(types: &[String]) -> anyhow::Result<Vec<&'static Signature>> {
     if types.is_empty() || types.iter().any(|t| t.eq_ignore_ascii_case("all")) {
-        return Ok(SIGNATURES.iter().collect());
+        // "all" means every *file* type. Filesystem images are opt-in (see
+        // `Category::Volume`); the real-image corpus showed a default scan of an
+        // exFAT or HFS+ volume carving the whole volume as one file and
+        // nothing inside it.
+        return Ok(SIGNATURES
+            .iter()
+            .filter(|s| category_of(s.ext) != Category::Volume)
+            .collect());
     }
     let mut selected = Vec::new();
     for t in types {
@@ -3124,6 +3132,15 @@ pub fn select(types: &[String]) -> anyhow::Result<Vec<&'static Signature>> {
     Ok(selected)
 }
 
+impl Signature {
+    /// Whether this signature describes a whole filesystem or partition image
+    /// rather than a file. Such a match never hides the files inside it from
+    /// the carver, and is only carved when asked for by name or category.
+    pub fn is_volume(&self) -> bool {
+        category_of(self.ext) == Category::Volume
+    }
+}
+
 /// A broad grouping of file types, so a whole class (e.g. all images) can be
 /// selected with one name instead of listing every extension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3136,6 +3153,12 @@ pub enum Category {
     Executable,
     Font,
     System,
+    /// A whole filesystem or partition image (NTFS, exFAT, HFS+, btrfs, ...).
+    /// Not part of the implicit "all" selection: a default scan of a disk would
+    /// otherwise copy every partition on it wholesale, and the files inside are
+    /// what people want. Ask for it by name (`--type volume` or `--type ntfs`)
+    /// to carve a lost partition out of a larger image.
+    Volume,
     Other,
 }
 
@@ -3150,6 +3173,7 @@ impl Category {
         "executable",
         "font",
         "system",
+        "volume",
     ];
 
     /// Resolve a user-supplied category name (case-insensitive; a trailing "s"
@@ -3166,6 +3190,7 @@ impl Category {
             "executable" => Some(Category::Executable), // "exe" stays a file type
             "font" => Some(Category::Font),
             "system" => Some(Category::System),
+            "volume" | "filesystem" | "partition" => Some(Category::Volume),
             _ => None,
         }
     }
@@ -3181,6 +3206,7 @@ impl Category {
             Category::Executable => "executable",
             Category::Font => "font",
             Category::System => "system",
+            Category::Volume => "volume",
             Category::Other => "other",
         }
     }
@@ -3300,9 +3326,9 @@ pub fn category_of(ext: &str) -> Category {
         }
         "ttf" | "otf" | "woff" | "woff2" | "ttc" | "pcf" => Category::Font,
         "regf" | "evtx" | "wim" | "sqlite" | "pcap" | "pcapng" | "squashfs" | "iso" | "uimage"
-        | "dtb" | "trx" | "img" | "dtbo" | "journal" | "h5" | "erofs" | "mcap" | "f2fs"
-        | "btrfs" | "xfs" | "exfat" | "apfs" | "refs" | "ntfs" | "swap" | "romfs" | "cramfs"
-        | "jfs" | "ufs" | "befs" | "hfsplus" | "reiserfs" => Category::System,
+        | "dtb" | "trx" | "img" | "dtbo" | "journal" | "h5" | "mcap" => Category::System,
+        "erofs" | "f2fs" | "btrfs" | "xfs" | "exfat" | "apfs" | "refs" | "ntfs" | "swap"
+        | "romfs" | "cramfs" | "jfs" | "ufs" | "befs" | "hfsplus" | "reiserfs" => Category::Volume,
         _ => Category::Other,
     }
 }

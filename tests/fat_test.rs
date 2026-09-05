@@ -1,6 +1,8 @@
 //! Integration test: build a minimal FAT12 volume by hand, "delete" a file in
 //! it, and verify filesystem-aware recovery restores its name and contents.
 
+mod common;
+
 use std::path::PathBuf;
 
 use unearth::fat;
@@ -168,4 +170,25 @@ fn skips_short_name_first_char() {
     // First char unknown -> "_OTES.TXT".
     let recovered = std::fs::read(out_dir.join("_OTES.TXT")).unwrap();
     assert_eq!(recovered, payload);
+}
+
+/// A folder removed as a whole: its own entry is deleted, and its cluster still
+/// lists the deleted files inside. They must come back under the folder.
+#[test]
+fn recovers_files_from_a_deleted_folder() {
+    let payload = b"inside a folder that was deleted";
+    let img = common::fat32_deleted_dir_volume(b"PHOTOS  ", b"IMG_0001", b"JPG", payload);
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("fat.img");
+    std::fs::write(&p, &img).unwrap();
+    let src = unearth::source::Source::open(&p).unwrap();
+    let vols = unearth::recover::detect(&src).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vols[0]
+        .recover_deleted(&src, &out, &unearth::recover::RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    // The first character of each short name is lost to the deletion marker.
+    let got = std::fs::read(out.join("_HOTOS").join("_MG_0001.JPG")).unwrap();
+    assert_eq!(got, payload);
 }

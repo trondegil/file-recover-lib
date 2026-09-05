@@ -470,21 +470,32 @@ impl Volume {
         Ok((df.size as u64 - remaining, digest))
     }
 
-    /// Walk live directories (starting at the root), collecting deleted files
-    /// with their reconstructed relative paths.
+    /// Walk directories (starting at the root), collecting deleted files with
+    /// their reconstructed relative paths.
+    ///
+    /// Deleted directories are descended too: removing a folder tree marks
+    /// every entry in it deleted and then the folder's own entry, but the
+    /// folder's cluster still holds those entries until it is reused. The
+    /// real-image corpus showed a recursively deleted folder losing all of its
+    /// files otherwise. A deleted folder's cluster is only trusted when it still
+    /// starts with the `.` entry every FAT subdirectory carries, so a cluster
+    /// that has since been reused for file data is not read as a directory.
     fn walk(&self, src: &Source, out: &mut Vec<DeletedFile>) -> Result<()> {
         let mut visited: HashSet<u32> = HashSet::new();
-        // Stack of (directory location, path-so-far, depth).
-        let mut stack: Vec<(DirLoc, PathBuf, usize)> =
-            vec![(self.root_location(), PathBuf::new(), 0)];
+        // Stack of (directory location, path-so-far, depth, entry was deleted).
+        let mut stack: Vec<(DirLoc, PathBuf, usize, bool)> =
+            vec![(self.root_location(), PathBuf::new(), 0, false)];
 
-        while let Some((loc, path, depth)) = stack.pop() {
+        while let Some((loc, path, depth, deleted_dir)) = stack.pop() {
             let bytes = match self.read_directory(src, loc, &mut visited) {
                 Ok(b) => b,
                 Err(_) => continue,
             };
+            if deleted_dir && !starts_with_dot_entry(&bytes) {
+                continue;
+            }
             for entry in parse_entries(&bytes) {
-                if entry.is_dir && !entry.deleted {
+                if entry.is_dir {
                     if entry.name == "." || entry.name == ".." {
                         continue;
                     }
@@ -494,9 +505,14 @@ impl Volume {
                         && !visited.contains(&entry.start_cluster)
                     {
                         let child = path.join(sanitize_component(&entry.name));
-                        stack.push((DirLoc::Cluster(entry.start_cluster), child, depth + 1));
+                        stack.push((
+                            DirLoc::Cluster(entry.start_cluster),
+                            child,
+                            depth + 1,
+                            entry.deleted,
+                        ));
                     }
-                } else if !entry.is_dir && entry.deleted {
+                } else if entry.deleted {
                     out.push(DeletedFile {
                         path: path.join(sanitize_component(&entry.name)),
                         start_cluster: entry.start_cluster,
@@ -561,6 +577,14 @@ impl Volume {
             }
         }
     }
+}
+
+/// Whether directory bytes begin with the `.` self-entry (short name `.` padded
+/// with spaces, directory attribute), as every FAT subdirectory's first slot
+/// does. Deleted directories keep it, since only the parent's entry for the
+/// folder gets the deletion marker.
+fn starts_with_dot_entry(bytes: &[u8]) -> bool {
+    bytes.len() >= ENTRY_SIZE && &bytes[0..11] == b".          " && bytes[11] & ATTR_DIRECTORY != 0
 }
 
 #[derive(Clone, Copy)]

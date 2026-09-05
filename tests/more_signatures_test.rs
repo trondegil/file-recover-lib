@@ -473,7 +473,19 @@ fn recovers_wasm() {
 
 /// A minimal Windows icon: a directory of `images`, each placed right after the
 /// directory, with size and offset recorded per entry.
-fn ico(images: &[Vec<u8>]) -> Vec<u8> {
+/// Each image is stored as a DIB: a BITMAPINFOHEADER (40 bytes, its size in
+/// the first field) followed by the pixel payload, as real icons are.
+fn ico(payloads: &[Vec<u8>]) -> Vec<u8> {
+    let images: Vec<Vec<u8>> = payloads
+        .iter()
+        .map(|p| {
+            let mut v = vec![0u8; 40];
+            v[0..4].copy_from_slice(&40u32.to_le_bytes());
+            v.extend_from_slice(p);
+            v
+        })
+        .collect();
+    let images = &images;
     let count = images.len();
     let dir_end = 6 + count * 16;
     let total = dir_end + images.iter().map(|i| i.len()).sum::<usize>();

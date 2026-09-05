@@ -155,3 +155,21 @@ fn unicode_name_is_preserved() {
         b"unicode body"
     );
 }
+
+/// A journaled volume where macOS scrubbed the deleted record from the live
+/// leaf node: the only copy of it is the older node in the journal.
+#[test]
+fn recovers_from_a_stale_node_in_the_journal() {
+    let payload = b"recovered from the hfs+ journal";
+    let (tmp, img) = write_img(&common::hfsplus_journaled_volume("journal.txt", payload));
+    let src = Source::open(&img).unwrap();
+    let vols = recover::detect(&src).unwrap();
+    assert_eq!(vols[0].fs_label(), "HFS+");
+
+    let out = tmp.path().join("out");
+    let stats = vols[0]
+        .recover_deleted(&src, &out, &RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 1, "the journal copy must be found");
+    assert_eq!(std::fs::read(out.join("journal.txt")).unwrap(), payload);
+}

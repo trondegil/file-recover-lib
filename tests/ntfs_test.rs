@@ -361,3 +361,51 @@ fn recovers_deleted_ntfs_files() {
         notes
     );
 }
+
+/// A deleted record with `$DATA` but no `$FILE_NAME` (what the Linux ntfs3
+/// driver leaves behind) is recovered under `_unnamed/`, with the extension
+/// identified from its content when possible.
+#[test]
+fn recovers_nameless_records_by_content() {
+    let mut img = vec![0u8; TOTAL_CLUSTERS * CLUSTER];
+    write_boot(&mut img);
+    let mft_runs = [0x11u8, MFT_RECORDS as u8 * 2, MFT_CLUSTER as u8, 0x00];
+    let rec0 = build_record(
+        FLAG_IN_USE,
+        &[data_nonresident((MFT_RECORDS * RECORD) as u64, &mft_runs)],
+    );
+    let o = mft_byte(0);
+    img[o..o + RECORD].copy_from_slice(&rec0);
+
+    // Record 12: a nameless deleted JPEG; record 13: nameless deleted text.
+    let mut jpeg = vec![
+        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00,
+    ];
+    jpeg.extend_from_slice(&[0x11; 40]);
+    jpeg.extend_from_slice(&[0xFF, 0xD9]);
+    let text = b"plain text with no signature".to_vec();
+    for (idx, content) in [(12usize, &jpeg), (13usize, &text)] {
+        let rec = build_record(0, &[std_info_attr(0, 0), data_resident(content)]);
+        let o = mft_byte(idx);
+        img[o..o + RECORD].copy_from_slice(&rec);
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("ntfs.img");
+    std::fs::write(&p, &img).unwrap();
+    let src = Source::open(&p).unwrap();
+    let vol = ntfs::Volume::parse(&src, 0).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vol
+        .recover_deleted(&src, &out, &unearth::recover::RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 2);
+    assert_eq!(
+        std::fs::read(out.join("_unnamed/mft-12.jpg")).unwrap(),
+        jpeg
+    );
+    assert_eq!(
+        std::fs::read(out.join("_unnamed/mft-13.bin")).unwrap(),
+        text
+    );
+}

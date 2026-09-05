@@ -26,7 +26,9 @@ fn make_sfnt(version: &[u8; 4], table: &[u8]) -> Vec<u8> {
     let mut v = Vec::new();
     v.extend_from_slice(version);
     v.extend_from_slice(&1u16.to_be_bytes()); // numTables
-    v.extend_from_slice(&[0u8; 6]); // searchRange/entrySelector/rangeShift
+    v.extend_from_slice(&16u16.to_be_bytes()); // searchRange = 16 * 2^floor(log2 1)
+    v.extend_from_slice(&0u16.to_be_bytes()); // entrySelector = floor(log2 1)
+    v.extend_from_slice(&0u16.to_be_bytes()); // rangeShift = 1*16 - searchRange
     let table_off = 28u32; // 12-byte header + one 16-byte record
     v.extend_from_slice(b"cmap");
     v.extend_from_slice(&0u32.to_be_bytes()); // checksum

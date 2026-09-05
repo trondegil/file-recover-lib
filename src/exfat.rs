@@ -450,7 +450,12 @@ impl Volume {
                 Err(_) => continue,
             };
             for item in parse_entry_sets(&bytes) {
-                if item.is_dir && !item.deleted {
+                // Deleted directories are descended as well: removing a folder
+                // tree marks its entries deleted before the folder itself, and
+                // the folder's clusters keep them until reused. The stream
+                // extension survives deletion, so the length and the
+                // contiguity flag still say how to read it.
+                if item.is_dir {
                     if depth < MAX_DIR_DEPTH
                         && item.first_cluster >= 2
                         && item.first_cluster <= self.max_valid_cluster()
@@ -465,7 +470,7 @@ impl Volume {
                             depth + 1,
                         ));
                     }
-                } else if !item.is_dir && item.deleted {
+                } else if item.deleted {
                     out.push(DeletedFile {
                         path: path.join(sanitize_component(&item.name)),
                         first_cluster: item.first_cluster,
