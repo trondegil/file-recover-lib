@@ -76,13 +76,15 @@ on any image drops. Also done when the first real bug the corpus finds is
 fixed. There will be one.
 
 Status (September 2026). Items 1, 2, 4, 5, and 6 are in place: see
-`corpus/README.md`. Seventy images exist, seven scenarios each for FAT32,
-exFAT, and HFS+ from macOS, for ext4, FAT32, exFAT, and NTFS from Linux, and
-for FAT32, exFAT, and NTFS from Windows (built by the `Corpus (Windows)`
-workflow). The corpus found eleven real bugs on its first runs, all fixed;
-the table in that README lists them. Still open: no device-made images have
-been collected (item 3), and the tarball has not yet been published
-(`corpus/publish.sh`), so the CI job skips until it is.
+`corpus/README.md`. Seventy-seven images exist, seven scenarios each for
+FAT32, exFAT, and HFS+ from macOS, for ext4, FAT32, exFAT, NTFS, and XFS
+from Linux, and for FAT32, exFAT, and NTFS from Windows (built by the
+`Corpus (Windows)` workflow). They are published as release `corpus-v3`,
+pinned in `corpus/corpus.lock`, and run in CI on Ubuntu, macOS, and Windows
+on every push. The corpus found eleven real bugs on its first runs, all
+fixed; the table in that README lists them. Still open: no device-made
+images have been collected (item 3), which needs a camera, a phone, and a
+dashcam or drone card in hand.
 
 ## Step 2. Make cross-platform true on real machines
 
