@@ -71,6 +71,7 @@ Each filesystem gets one image per scenario.
 | `macos-fat32-*`, `macos-exfat-*`, `macos-hfsplus-*` | `diskutil eraseVolume` on a raw image attached with `hdiutil` | `recipes/macos.sh` |
 | `linux-ext4-*`, `linux-fat32-*`, `linux-exfat-*` | `mke2fs`, `mkfs.fat`, `mkfs.exfat`, mounted with the kernel driver | `recipes/linux.sh` |
 | `linux-ntfs-*` | `mkfs.ntfs` from ntfs-3g, mounted with the kernel `ntfs3` driver. A stopgap until the Windows recipe has been run. | `recipes/linux.sh` |
+| `linux-xfs-*` | `mkfs.xfs`, mounted with the kernel driver, on a 512 MiB volume (XFS refuses anything under 300 MB). Detect-only: these images measure detection and `scan`, and document what XFS leaves behind. | `recipes/linux.sh` |
 | `windows-fat32-*`, `windows-exfat-*`, `windows-ntfs-*` | `diskpart` `format` on a fixed VHD | `recipes/windows.ps1` |
 
 Notes on what the platforms do that a synthetic image never would:
@@ -213,13 +214,24 @@ one had passed the synthetic test suite.
 
 Known gaps the baselines document rather than hide:
 
+- XFS undelete is "no", and the corpus says why: on a Linux 7.0 kernel every
+  freed inode had its mode, size, extent count, and extent area zeroed, so
+  no data map survives in the inode table (the roadmap's premise that XFS
+  keeps inodes in place does not hold on a current kernel). Names survive
+  as unused directory entries; the map would have to come from the XFS log.
+
 - FAT and exFAT undelete reassemble a deleted file around clusters still
   allocated to live files, and follow the allocator's wrap to the first free
   gap, so the `fragmented` scenario recovers 3 of 4 on Linux FAT32, 2 of 4
   on macOS and Windows FAT32, and 4 of 4 on Linux and Windows exFAT (whose
   drivers leave the chain intact). The misses are files whose next free
-  cluster belonged to a neighbour deleted after them, which only
-  format-aware validation can settle (roadmap step 5, item 1, second half).
+  cluster belonged to a neighbour deleted after them. JPEG structure is
+  now checked cluster by cluster while reassembling a `.jpg`, which
+  rejects foreign data with `FF` bytes in it (text, PNG, PDF) but not
+  zero-filled remnants, so the corpus numbers did not move; PDF and PNG
+  have no cheap per-cluster test. Excluding small deleted files' clusters
+  (macOS's AppleDouble companions) was tried and rejected: it fixed one
+  file and broke another.
 - ext4 scan recall on `fragmented` is 0 and undelete is now 4 of 4: carving
   cannot reassemble fragments, metadata can.
 - HFS+ names come back in the decomposed Unicode form the catalog stores

@@ -67,6 +67,7 @@ pub mod image;
 pub mod iso9660;
 pub mod jfs;
 pub mod job;
+pub mod jpegscan;
 pub mod json;
 pub mod lvm;
 pub mod manifest;

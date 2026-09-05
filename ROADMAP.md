@@ -76,13 +76,15 @@ on any image drops. Also done when the first real bug the corpus finds is
 fixed. There will be one.
 
 Status (September 2026). Items 1, 2, 4, 5, and 6 are in place: see
-`corpus/README.md`. Seventy images exist, seven scenarios each for FAT32,
-exFAT, and HFS+ from macOS, for ext4, FAT32, exFAT, and NTFS from Linux, and
-for FAT32, exFAT, and NTFS from Windows (built by the `Corpus (Windows)`
-workflow). The corpus found eleven real bugs on its first runs, all fixed;
-the table in that README lists them. Still open: no device-made images have
-been collected (item 3), and the tarball has not yet been published
-(`corpus/publish.sh`), so the CI job skips until it is.
+`corpus/README.md`. Seventy-seven images exist, seven scenarios each for
+FAT32, exFAT, and HFS+ from macOS, for ext4, FAT32, exFAT, NTFS, and XFS
+from Linux, and for FAT32, exFAT, and NTFS from Windows (built by the
+`Corpus (Windows)` workflow). They are published as release `corpus-v3`,
+pinned in `corpus/corpus.lock`, and run in CI on Ubuntu, macOS, and Windows
+on every push. The corpus found eleven real bugs on its first runs, all
+fixed; the table in that README lists them. Still open: no device-made
+images have been collected (item 3), which needs a camera, a phone, and a
+dashcam or drone card in hand.
 
 ## Step 2. Make cross-platform true on real machines
 
@@ -297,9 +299,20 @@ second approach: the misses are files whose next free cluster belonged to
 a neighbour deleted *after* them (or to their own deleted AppleDouble
 companion on macOS), which no allocation map can attribute, so only
 format-aware validation of each candidate cluster (JPEG first) can settle
-them. Item 2 has begun: fragmented-file and Windows-behaviour integration
-tests for both, and a first unit-test module in exFAT. Items 3 to 6 are
-untouched.
+them. The JPEG half of that second approach is in: while reassembling a
+`.jpg`, each candidate cluster is checked against JPEG structure (marker
+segments, then the entropy-coded rule that `FF` may only precede `00`, a
+restart marker, `D9`, or a legal segment marker), and a cluster that fails
+is stepped over. It rejects foreign data that carries `FF` bytes; it cannot
+reject zero-filled remnants, which is what the corpus's remaining misses
+are, so the corpus numbers did not move. PDF and PNG have no cheap
+per-cluster test. Item 2: fragmented-file, decoy, and Windows-behaviour
+integration tests, plus unit tests for FAT and exFAT directory parsing.
+Item 3: XFS images were added to the corpus and settle the question the
+wrong way: a current kernel zeroes a freed inode entirely, so there is no
+inode-table undelete to build; names survive in directory blocks and the
+data map would have to come from the XFS log, a parser of its own. UFS and
+JFS were not examined. Items 4 to 6 are untouched.
 
 ## Step 6. Build the end-user application
 

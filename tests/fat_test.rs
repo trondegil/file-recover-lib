@@ -275,3 +275,27 @@ fn follows_the_allocator_wrap_to_the_start_of_the_volume() {
     ));
     assert_eq!(got, payload);
 }
+
+/// A JPEG whose next free cluster holds a stranger's data: the allocation map
+/// cannot tell, but JPEG structure rejects `FF 7A` in scan data, so the read
+/// steps over the decoy and the photo comes back byte-for-byte.
+#[test]
+fn jpeg_structure_steps_over_a_free_decoy_cluster() {
+    // SOI, APP0, SOS (1-byte header), then scan data with no FF bytes, then EOI.
+    let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00];
+    jpeg.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x03, 0x01]);
+    jpeg.extend((0..1100u32).map(|i| (i % 200) as u8 + 1));
+    jpeg.extend_from_slice(&[0xFF, 0xD9]);
+    let img = common::fat32_jpeg_decoy_volume(&jpeg);
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("fat.img");
+    std::fs::write(&p, &img).unwrap();
+    let src = unearth::source::Source::open(&p).unwrap();
+    let vols = unearth::recover::detect(&src).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vols[0]
+        .recover_deleted(&src, &out, &unearth::recover::RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(std::fs::read(out.join("_HOTO.JPG")).unwrap(), jpeg);
+}

@@ -301,12 +301,25 @@ fn run(args: &[&str]) -> std::process::Output {
 fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
     let undelete_dir = work.join("undelete");
     let scan_dir = work.join("scan");
-    run(&[
-        "undelete",
-        image.to_str().unwrap(),
-        "-o",
-        undelete_dir.to_str().unwrap(),
-    ]);
+    // A detect-only filesystem makes `undelete` exit non-zero on purpose;
+    // for the corpus that is simply "nothing recovered by name".
+    let out = Command::new(bin())
+        .args([
+            "undelete",
+            image.to_str().unwrap(),
+            "-o",
+            undelete_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run unearth");
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("detect-only"),
+            "unearth undelete failed on {}: {stderr}",
+            image.display()
+        );
+    }
     run(&[
         "scan",
         image.to_str().unwrap(),

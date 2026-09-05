@@ -123,7 +123,7 @@ by `unearth info --features --markdown`; a test fails if this copy drifts.
 | APFS | yes | yes | no | no | copy-on-write; use scan |
 | Btrfs | yes | yes | no | no | copy-on-write; use scan |
 | ReFS | yes | yes | no | no | use scan |
-| XFS | yes | yes | no | no | use scan |
+| XFS | yes | yes | no | no | a current kernel zeroes a freed inode entirely (corpus-verified), so only the log could give the data map; use scan |
 | F2FS | yes | yes | no | no | use scan |
 | ReiserFS | yes | yes | no | no | use scan |
 | JFS | yes | yes | no | no | use scan |
