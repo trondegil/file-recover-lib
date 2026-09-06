@@ -84,7 +84,62 @@ pub fn is_minix(src: &Source, vol_offset: u64) -> bool {
         return false;
     };
     let mut hdr = [0u8; HEADER_LEN];
-    src.read_at(at, &mut hdr).unwrap_or(0) >= HEADER_LEN && classify(&hdr).is_some()
+    src.read_at(at, &mut hdr).unwrap_or(0) >= HEADER_LEN
+        && classify(&hdr).is_some_and(|v| geometry_ok(&hdr, v))
+}
+
+/// Whether the superblock's layout fields describe a filesystem `mkfs` could
+/// have written. The magic is two bytes, which random data matches once in
+/// 32 Ki probes, so it cannot carry detection on its own; the bitmap block
+/// counts, the first data zone, and the zone-size shift can. The v1/v2
+/// superblock keeps `s_imap_blocks`, `s_zmap_blocks`, `s_firstdatazone`, and
+/// `s_log_zone_size` at 4, 6, 8, and 0xA; v3 widens `s_ninodes` and keeps
+/// them at 6, 8, 0xA, and 0xC.
+fn geometry_ok(hdr: &[u8], version: Version) -> bool {
+    let u16_at = |o: usize| u16::from_le_bytes([hdr[o], hdr[o + 1]]) as u64;
+    let u32_at = |o: usize| u32::from_le_bytes(hdr[o..o + 4].try_into().unwrap()) as u64;
+    let (ninodes, imap, zmap, first_data, log, zones) = match version {
+        Version::V1 => (
+            u16_at(0),
+            u16_at(4),
+            u16_at(6),
+            u16_at(8),
+            u16_at(0xA),
+            u16_at(NZONES_V1_OFFSET),
+        ),
+        Version::V2 => (
+            u16_at(0),
+            u16_at(4),
+            u16_at(6),
+            u16_at(8),
+            u16_at(0xA),
+            u32_at(ZONES_V23_OFFSET),
+        ),
+        Version::V3 => (
+            u32_at(0),
+            u16_at(6),
+            u16_at(8),
+            u16_at(0xA),
+            u16_at(0xC),
+            u32_at(ZONES_V23_OFFSET),
+        ),
+    };
+    if version == Version::V3 {
+        let bs = u16_at(BLOCKSIZE_V3_OFFSET);
+        if !(1024..=65536).contains(&bs) || !bs.is_power_of_two() {
+            return false;
+        }
+    }
+    // Every volume has inodes, both bitmaps, and data zones after the
+    // boot block, superblock, and bitmaps; zone sizes past 256 KiB do not
+    // exist.
+    ninodes > 0
+        && imap > 0
+        && zmap > 0
+        && zones > 0
+        && log <= 8
+        && first_data >= 2 + imap + zmap
+        && first_data < zones
 }
 
 impl Volume {
@@ -100,6 +155,9 @@ impl Volume {
         let Some(version) = classify(&hdr) else {
             bail!("not a Minix volume");
         };
+        if !geometry_ok(&hdr, version) {
+            bail!("implausible Minix geometry");
+        }
         let log = u16::from_le_bytes(
             hdr[LOG_ZONE_OFFSET..LOG_ZONE_OFFSET + 2]
                 .try_into()
@@ -198,10 +256,21 @@ impl Volume {
 mod tests {
     use super::*;
 
+    /// The layout fields every version shares in spirit: 32 inodes, one
+    /// block per bitmap, first data zone right after them.
+    fn layout(v: &mut [u8], ninodes_off: usize, imap_off: usize) {
+        let sb = SB_OFFSET as usize;
+        v[sb + ninodes_off..sb + ninodes_off + 2].copy_from_slice(&32u16.to_le_bytes());
+        v[sb + imap_off..sb + imap_off + 2].copy_from_slice(&1u16.to_le_bytes());
+        v[sb + imap_off + 2..sb + imap_off + 4].copy_from_slice(&1u16.to_le_bytes());
+        v[sb + imap_off + 4..sb + imap_off + 6].copy_from_slice(&5u16.to_le_bytes());
+    }
+
     /// Build a v1/v2 Minix volume (magic at 0x10).
     fn minix_v12(magic: u16, nzones_v1: u16, zones_v2: u32, log: u16, total: usize) -> Vec<u8> {
         let mut v = vec![0u8; total];
         let sb = SB_OFFSET as usize;
+        layout(&mut v, 0, 4);
         v[sb + NZONES_V1_OFFSET..sb + NZONES_V1_OFFSET + 2]
             .copy_from_slice(&nzones_v1.to_le_bytes());
         v[sb + LOG_ZONE_OFFSET..sb + LOG_ZONE_OFFSET + 2].copy_from_slice(&log.to_le_bytes());
@@ -215,6 +284,7 @@ mod tests {
     fn minix_v3(zones: u32, blocksize: u16, total: usize) -> Vec<u8> {
         let mut v = vec![0u8; total];
         let sb = SB_OFFSET as usize;
+        layout(&mut v, 0, 6);
         v[sb + ZONES_V23_OFFSET..sb + ZONES_V23_OFFSET + 4].copy_from_slice(&zones.to_le_bytes());
         v[sb + MAGIC_V3_OFFSET..sb + MAGIC_V3_OFFSET + 2].copy_from_slice(&MAGIC_V3.to_le_bytes());
         v[sb + BLOCKSIZE_V3_OFFSET..sb + BLOCKSIZE_V3_OFFSET + 2]
@@ -256,6 +326,39 @@ mod tests {
         let v = Volume::parse(&src, 0).unwrap();
         assert_eq!(v.fs_label(), "Minix v3");
         assert_eq!(v.size(), 80 * 4096);
+    }
+
+    /// A bare magic in otherwise random bytes must not become a volume, so
+    /// each layout field is checked: one wrong field is enough to refuse.
+    #[test]
+    fn rejects_a_magic_with_implausible_geometry() {
+        let sb = SB_OFFSET as usize;
+        let good = minix_v12(MAGIC_V1, 200, 0, 0, 512 * 1024);
+        let (_t, src) = source_of(&good);
+        assert!(is_minix(&src, 0));
+        let broken: Vec<(&str, usize, u16)> = vec![
+            ("no inodes", 0, 0),
+            ("no inode bitmap", 4, 0),
+            ("no zone bitmap", 6, 0),
+            ("first data zone before the bitmaps", 8, 3),
+            ("first data zone past the end", 8, 200),
+            ("zone shift too large", 0xA, 9),
+        ];
+        for (what, off, value) in broken {
+            let mut v = good.clone();
+            v[sb + off..sb + off + 2].copy_from_slice(&value.to_le_bytes());
+            let (_t, src) = source_of(&v);
+            assert!(!is_minix(&src, 0), "{what}");
+            assert!(Volume::parse(&src, 0).is_err(), "{what}");
+        }
+        // v3: the block size must be a power of two from 1 KiB to 64 KiB.
+        let mut v3 = minix_v3(80, 3000, 512 * 1024);
+        let (_t, src) = source_of(&v3);
+        assert!(!is_minix(&src, 0), "v3 odd block size");
+        v3[sb + BLOCKSIZE_V3_OFFSET..sb + BLOCKSIZE_V3_OFFSET + 2]
+            .copy_from_slice(&4096u16.to_le_bytes());
+        let (_t, src) = source_of(&v3);
+        assert!(is_minix(&src, 0));
     }
 
     #[test]

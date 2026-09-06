@@ -396,25 +396,126 @@ pub fn fat32_volume(name8: &[u8; 8], ext3: &[u8; 3], payload: &[u8]) -> Vec<u8> 
 // --- GPT wrapper --------------------------------------------------------
 
 /// Wrap a volume image in a GPT disk using the given logical `sector_size`
-/// (512 or 4096), placing the volume at `part_lba`.
+/// (512 or 4096), placing the volume at `part_lba`. The primary header sits
+/// at LBA 1 with its entry array at LBA 2; a backup header sits at the last
+/// LBA with its own copy of the entry array in the sector before it, as a
+/// real GPT disk carries, so a wiped primary can be tested.
 pub fn gpt_disk(volume: &[u8], sector_size: usize, part_lba: usize) -> Vec<u8> {
     let part_off = part_lba * sector_size;
-    let mut disk = vec![0u8; part_off + volume.len()];
+    // The volume, rounded up to whole sectors, then the backup entry array
+    // sector and the backup header sector.
+    let body_sectors = part_lba + volume.len().div_ceil(sector_size);
+    let total_sectors = body_sectors + 2;
+    let backup_entries_lba = body_sectors;
+    let backup_hdr_lba = body_sectors + 1;
+    let mut disk = vec![0u8; total_sectors * sector_size];
     // Protective MBR signature.
     disk[510] = 0x55;
     disk[511] = 0xAA;
-    // GPT header at LBA 1.
-    let h = sector_size;
-    disk[h..h + 8].copy_from_slice(b"EFI PART");
-    disk[h + 72..h + 80].copy_from_slice(&2u64.to_le_bytes()); // entry array LBA
-    disk[h + 80..h + 84].copy_from_slice(&4u32.to_le_bytes()); // entry count
-    disk[h + 84..h + 88].copy_from_slice(&128u32.to_le_bytes()); // entry size
-                                                                 // One partition entry at LBA 2.
-    let e = 2 * sector_size;
-    disk[e..e + 16].copy_from_slice(&[0x11; 16]); // non-zero type GUID
-    disk[e + 32..e + 40].copy_from_slice(&(part_lba as u64).to_le_bytes());
+    let write_header = |disk: &mut [u8], lba: usize, entries_lba: usize, alternate: usize| {
+        let h = lba * sector_size;
+        disk[h..h + 8].copy_from_slice(b"EFI PART");
+        disk[h + 24..h + 32].copy_from_slice(&(lba as u64).to_le_bytes()); // current LBA
+        disk[h + 32..h + 40].copy_from_slice(&(alternate as u64).to_le_bytes()); // backup LBA
+        disk[h + 72..h + 80].copy_from_slice(&(entries_lba as u64).to_le_bytes()); // entry array LBA
+        disk[h + 80..h + 84].copy_from_slice(&4u32.to_le_bytes()); // entry count
+        disk[h + 84..h + 88].copy_from_slice(&128u32.to_le_bytes()); // entry size
+    };
+    let write_entry = |disk: &mut [u8], lba: usize| {
+        let e = lba * sector_size;
+        disk[e..e + 16].copy_from_slice(&[0x11; 16]); // non-zero type GUID
+        disk[e + 32..e + 40].copy_from_slice(&(part_lba as u64).to_le_bytes());
+        disk[e + 40..e + 48].copy_from_slice(&((body_sectors - 1) as u64).to_le_bytes());
+    };
+    write_header(&mut disk, 1, 2, backup_hdr_lba);
+    write_entry(&mut disk, 2);
+    write_header(&mut disk, backup_hdr_lba, backup_entries_lba, 1);
+    write_entry(&mut disk, backup_entries_lba);
     disk[part_off..part_off + volume.len()].copy_from_slice(volume);
     disk
+}
+
+// --- Detect-only filesystems -------------------------------------------
+
+/// A minimal Btrfs volume: just enough of the primary superblock (at 64 KiB)
+/// for detection, with a label and total size.
+pub fn btrfs_volume(label: &str, total_bytes: u64) -> Vec<u8> {
+    const SB_OFFSET: usize = 0x1_0000;
+    let mut v = vec![0u8; SB_OFFSET + 4096];
+    let sb = SB_OFFSET;
+    v[sb + 64..sb + 72].copy_from_slice(b"_BHRfS_M");
+    v[sb + 112..sb + 120].copy_from_slice(&total_bytes.to_le_bytes());
+    v[sb + 144..sb + 148].copy_from_slice(&4096u32.to_le_bytes()); // sectorsize
+    v[sb + 148..sb + 152].copy_from_slice(&16384u32.to_le_bytes()); // nodesize
+    let lb = label.as_bytes();
+    v[sb + 299..sb + 299 + lb.len()].copy_from_slice(lb);
+    v
+}
+
+/// A minimal ISO 9660 image: a Primary Volume Descriptor at sector 16 with a
+/// volume size (block count × block size) and a volume label. No directory
+/// tree, so there are no files to extract.
+pub fn iso_image(blocks: u32, label: &str) -> Vec<u8> {
+    const VDS_OFFSET: usize = 16 * 2048;
+    const VD_SIZE: usize = 2048;
+    let mut v = vec![0u8; VDS_OFFSET + 4 * VD_SIZE];
+    let off = VDS_OFFSET;
+    v[off] = 1; // Primary Volume Descriptor
+    v[off + 1..off + 6].copy_from_slice(b"CD001");
+    v[off + 6] = 1;
+    v[off + 40..off + 40 + label.len()].copy_from_slice(label.as_bytes());
+    v[off + 80..off + 84].copy_from_slice(&blocks.to_le_bytes());
+    v[off + 128..off + 130].copy_from_slice(&2048u16.to_le_bytes());
+    // Volume creation date/time at offset 813: 2021-01-01 12:00:00, GMT.
+    v[off + 813..off + 829].copy_from_slice(b"2021010112000000");
+    v
+}
+
+/// A minimal UDF image: a reserved area followed by a BEA01 / NSR03 / TEA01
+/// Volume Recognition Sequence at sector 16.
+pub fn udf_image() -> Vec<u8> {
+    const VRS_OFFSET: usize = 16 * 2048;
+    const VSD_SIZE: usize = 2048;
+    let mut v = vec![0u8; VRS_OFFSET + 8 * VSD_SIZE];
+    let put = |v: &mut [u8], index: usize, id: &[u8; 5]| {
+        let off = VRS_OFFSET + index * VSD_SIZE;
+        v[off + 1..off + 6].copy_from_slice(id);
+    };
+    put(&mut v, 0, b"BEA01");
+    put(&mut v, 1, b"NSR03");
+    put(&mut v, 2, b"TEA01");
+    v
+}
+
+/// A 1 MiB LUKS container header of the given version (1 or 2).
+pub fn luks_image(version: u16) -> Vec<u8> {
+    let mut v = vec![0u8; 1 << 20];
+    v[0..6].copy_from_slice(b"LUKS\xba\xbe");
+    v[6..8].copy_from_slice(&version.to_be_bytes());
+    v
+}
+
+/// A 1 MiB BitLocker volume: its boot sector carries the `-FVE-FS-` OEM ID.
+pub fn bitlocker_image() -> Vec<u8> {
+    let mut v = vec![0u8; 1 << 20];
+    v[0..3].copy_from_slice(&[0xEB, 0x58, 0x90]); // boot-sector jump
+    v[3..11].copy_from_slice(b"-FVE-FS-"); // BitLocker OEM ID
+    v[510] = 0x55;
+    v[511] = 0xAA;
+    v
+}
+
+/// A minimal XFS volume: the superblock's magic, block size, block count,
+/// and label, in `blocks` blocks of `block_size` bytes.
+pub fn xfs_volume(label: &str, block_size: u32, blocks: u64) -> Vec<u8> {
+    let mut v = vec![0u8; (block_size as usize) * (blocks as usize)];
+    v[0..4].copy_from_slice(b"XFSB");
+    v[4..8].copy_from_slice(&block_size.to_be_bytes());
+    v[8..16].copy_from_slice(&blocks.to_be_bytes());
+    let lb = label.as_bytes();
+    assert!(lb.len() <= 12);
+    v[0x6C..0x6C + lb.len()].copy_from_slice(lb);
+    v
 }
 
 /// A **journaled** HFS+ volume whose live catalog leaf holds nothing for the
@@ -716,5 +817,94 @@ pub fn fat32_jpeg_decoy_volume(jpeg: &[u8]) -> Vec<u8> {
     v[e + 11] = 0x20;
     v[e + 26..e + 28].copy_from_slice(&3u16.to_le_bytes());
     v[e + 28..e + 32].copy_from_slice(&(jpeg.len() as u32).to_le_bytes());
+    v
+}
+
+/// Like [`ext_volume`], but with several deleted files: entry `i` is inode
+/// `11 + i` with its data in block `11 + i`, reachable as a stale root
+/// dirent. Each payload must fit one 1 KiB block; at most 16 entries.
+pub fn ext_volume_multi(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    assert!(entries.len() <= 16, "at most 16 entries fit the fixture");
+    let mut v = vec![0u8; EXT_BLOCKS * EXT_BS];
+    let sb = 1024;
+    v[sb..sb + 4].copy_from_slice(&32u32.to_le_bytes());
+    v[sb + 4..sb + 8].copy_from_slice(&(EXT_BLOCKS as u32).to_le_bytes());
+    v[sb + 0x14..sb + 0x18].copy_from_slice(&1u32.to_le_bytes());
+    v[sb + 0x20..sb + 0x24].copy_from_slice(&8192u32.to_le_bytes());
+    v[sb + 0x28..sb + 0x2C].copy_from_slice(&32u32.to_le_bytes());
+    v[sb + 0x38..sb + 0x3A].copy_from_slice(&0xEF53u16.to_le_bytes());
+    v[sb + 0x58..sb + 0x5A].copy_from_slice(&(EXT_ISIZE as u16).to_le_bytes());
+    v[sb + 0x60..sb + 0x64].copy_from_slice(&0x0002u32.to_le_bytes());
+    v[2 * EXT_BS + 8..2 * EXT_BS + 12].copy_from_slice(&(EXT_ITAB as u32).to_le_bytes());
+
+    ext_inode(&mut v, 2, 0x41ED, 3, 0, EXT_BS as u32, EXT_ROOT_DIR as u32);
+    ext_dirent(&mut v, EXT_ROOT_DIR, 0, 2, 12, ".", 2);
+    ext_dirent(&mut v, EXT_ROOT_DIR, 12, 2, (EXT_BS - 12) as u16, "..", 2);
+
+    let mut off = 28;
+    for (i, (name, payload)) in entries.iter().enumerate() {
+        assert!(payload.len() <= EXT_BS, "payload must fit one block");
+        assert!(name.len() <= 255, "name must fit a dirent");
+        let ino = 11 + i as u32;
+        let block = EXT_DATA + i;
+        assert!(block < EXT_BLOCKS);
+        ext_inode(
+            &mut v,
+            ino,
+            0x81A4,
+            0,
+            12345,
+            payload.len() as u32,
+            block as u32,
+        );
+        v[block * EXT_BS..block * EXT_BS + payload.len()].copy_from_slice(payload);
+        let rec_len = (8 + name.len() + 7) & !7;
+        assert!(
+            off + 8 + name.len() <= EXT_BS,
+            "root dirents overflow the block"
+        );
+        ext_dirent(&mut v, EXT_ROOT_DIR, off, ino, rec_len as u16, name, 1);
+        off += rec_len;
+    }
+    v
+}
+
+/// A FAT32 volume (as [`fat32_volume`]) whose deleted file carries a long
+/// name: the deleted LFN entries precede a deleted `LONGNA~1.TXT` short entry,
+/// so the recovered name is `long_name`, whatever characters it holds.
+pub fn fat32_lfn_volume(long_name: &str, payload: &[u8]) -> Vec<u8> {
+    const BPS: usize = 512;
+    const RESERVED: usize = 32;
+    const FAT_SECTORS: usize = 512;
+    let root_off = (RESERVED + FAT_SECTORS) * BPS; // root cluster 2 is the first data cluster
+    let mut v = fat32_volume(b"LONGNA~1", b"TXT", payload);
+    let mut short = [0u8; 32];
+    short.copy_from_slice(&v[root_off..root_off + 32]);
+    v[root_off..root_off + 32].fill(0);
+
+    let mut units: Vec<u16> = long_name.encode_utf16().collect();
+    units.push(0);
+    let chunks: Vec<&[u16]> = units.chunks(13).collect();
+    assert!(chunks.len() <= 20, "long name too long for one LFN chain");
+    // Physical order is highest sequence first; every slot is marked deleted.
+    for (slot, chunk) in chunks.iter().rev().enumerate() {
+        let e = root_off + slot * 32;
+        v[e] = 0xE5;
+        v[e + 11] = 0x0F;
+        let mut padded = chunk.to_vec();
+        while padded.len() < 13 {
+            padded.push(0xFFFF);
+        }
+        let ranges = [1usize..11, 14..26, 28..32];
+        let mut k = 0;
+        for r in ranges {
+            for pair in v[e + r.start..e + r.end].chunks_exact_mut(2) {
+                pair.copy_from_slice(&padded[k].to_le_bytes());
+                k += 1;
+            }
+        }
+    }
+    let e = root_off + chunks.len() * 32;
+    v[e..e + 32].copy_from_slice(&short);
     v
 }

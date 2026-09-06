@@ -971,3 +971,127 @@ fn undelete_offset_override_recovers() {
         b"recover me via offset"
     );
 }
+
+// --- The source is never a destination ---------------------------------
+
+/// Every file argument a command writes, run with `dest` as its value.
+fn writing_commands<'a>(
+    src: &'a str,
+    out: &'a str,
+    copy: &'a str,
+    dest: &'a str,
+) -> Vec<Vec<&'a str>> {
+    vec![
+        vec!["image", src, dest, "--quiet"],
+        vec!["image", src, copy, "--map", dest, "--quiet"],
+        vec!["image", src, copy, "--summary", dest, "--quiet"],
+        vec!["scan", src, "-o", out, "--report", dest],
+        vec!["scan", src, "-o", out, "--checkpoint", dest],
+        vec!["scan", src, "-o", out, "--summary", dest],
+        vec!["undelete", src, "-o", out, "--report", dest],
+        vec!["recover", src, "-o", out, "--report", dest],
+    ]
+}
+
+/// An image whose contents a scan would write out (one JPEG), so a run that
+/// got as far as writing would leave a trace.
+fn source_image() -> Vec<u8> {
+    let mut data = vec![0u8; 4096];
+    data.extend_from_slice(&common::jpeg(&vec![0x5Au8; 3000]));
+    data.resize(16384, 0);
+    data
+}
+
+fn assert_refused_without_writing(args: &[&str], src: &Path, data: &[u8], out: &Path, copy: &Path) {
+    let res = run(args);
+    assert!(
+        !res.status.success(),
+        "{args:?} must fail: stderr {}",
+        String::from_utf8_lossy(&res.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&res.stderr);
+    assert!(
+        stderr.contains("source") && stderr.contains("refusing"),
+        "{args:?} must say why: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read(src).unwrap(),
+        data,
+        "{args:?} changed the source"
+    );
+    assert!(!out.exists(), "{args:?} wrote output before refusing");
+    assert!(!copy.exists(), "{args:?} wrote the image before refusing");
+}
+
+/// Naming the source itself as the thing to write, directly or via a
+/// relative spelling of the same path, is refused before anything is written.
+#[test]
+fn the_source_path_itself_is_refused_as_a_destination() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("disk.img");
+    let data = source_image();
+    std::fs::write(&src, &data).unwrap();
+    let out = tmp.path().join("out");
+    let copy = tmp.path().join("copy.img");
+    let (s, o, c) = (
+        src.to_str().unwrap(),
+        out.to_str().unwrap(),
+        copy.to_str().unwrap(),
+    );
+
+    for args in writing_commands(s, o, c, s) {
+        assert_refused_without_writing(&args, &src, &data, &out, &copy);
+    }
+    // The same file spelled relative to the working directory.
+    for args in writing_commands(s, o, c, "disk.img") {
+        let res = Command::new(bin())
+            .current_dir(tmp.path())
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(!res.status.success(), "{args:?} (relative alias) must fail");
+        assert_eq!(
+            std::fs::read(&src).unwrap(),
+            data,
+            "{args:?} changed the source"
+        );
+        assert!(
+            !out.exists() && !copy.exists(),
+            "{args:?} wrote before refusing"
+        );
+    }
+}
+
+/// A hard link or symlink to the source is the source: writing to it would
+/// truncate the very bytes being read.
+#[cfg(unix)]
+#[test]
+fn an_alias_of_the_source_is_refused_as_a_destination() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("disk.img");
+    let data = source_image();
+    std::fs::write(&src, &data).unwrap();
+    let hard = tmp.path().join("hard.img");
+    let sym = tmp.path().join("sym.img");
+    std::fs::hard_link(&src, &hard).unwrap();
+    std::os::unix::fs::symlink(&src, &sym).unwrap();
+    let out = tmp.path().join("out");
+    let copy = tmp.path().join("copy.img");
+    let (s, o, c) = (
+        src.to_str().unwrap(),
+        out.to_str().unwrap(),
+        copy.to_str().unwrap(),
+    );
+
+    for alias in [&hard, &sym] {
+        for args in writing_commands(s, o, c, alias.to_str().unwrap()) {
+            assert_refused_without_writing(&args, &src, &data, &out, &copy);
+        }
+    }
+    // And the other way round: reading through the alias, writing the original.
+    for alias in [&hard, &sym] {
+        for args in writing_commands(alias.to_str().unwrap(), o, c, s) {
+            assert_refused_without_writing(&args, &src, &data, &out, &copy);
+        }
+    }
+}

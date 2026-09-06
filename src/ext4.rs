@@ -36,7 +36,6 @@
 //! found from metadata alone — fall back to `scan` (carving).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -954,11 +953,7 @@ impl Volume {
         if data.is_empty() {
             return Ok((0, hash::digest(&data)));
         }
-        let target = unique_path(out_dir, rel);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut out = fs::File::create(&target)?;
+        let (_target, mut out) = crate::recover::create_output_file(out_dir, rel)?;
         out.write_all(&data)?;
         out.flush().ok();
         // Restore timestamps from the inode (Unix seconds).
@@ -1096,10 +1091,6 @@ fn parse_journal_tags(block: &[u8], csum_v3: bool, is_64bit: bool) -> Vec<u64> {
 
 fn sanitize_component(name: &str) -> String {
     crate::recover::sanitize_component(name)
-}
-
-fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
-    crate::recover::unique_path(out_dir, rel)
 }
 
 #[cfg(test)]

@@ -84,9 +84,22 @@ fn sb_offset(src: &Source, vol_offset: u64) -> Option<(u64, bool)> {
     None
 }
 
-/// Does a ReiserFS superblock sit at `vol_offset`?
+/// Does a ReiserFS superblock sit at `vol_offset`? The magic must be backed
+/// by a block size ReiserFS uses, so a magic over random bytes is not one.
 pub fn is_reiserfs(src: &Source, vol_offset: u64) -> bool {
-    sb_offset(src, vol_offset).is_some()
+    let Some((sb, _)) = sb_offset(src, vol_offset) else {
+        return false;
+    };
+    let mut bs = [0u8; 2];
+    if src
+        .read_at(sb + BLOCKSIZE_OFFSET as u64, &mut bs)
+        .unwrap_or(0)
+        < 2
+    {
+        return false;
+    }
+    let blocksize = u16::from_le_bytes(bs) as u64;
+    blocksize.is_power_of_two() && (512..=65536).contains(&blocksize)
 }
 
 impl Volume {
@@ -109,7 +122,9 @@ impl Volume {
                 .try_into()
                 .unwrap(),
         ) as u64;
-        if block_count == 0 || blocksize == 0 {
+        // The block size is a power of two from 512 B to 64 KiB; a magic
+        // over anything else is not a superblock.
+        if block_count == 0 || !blocksize.is_power_of_two() || !(512..=65536).contains(&blocksize) {
             bail!("implausible ReiserFS geometry");
         }
         // Fall back to the source span if the recorded size overflows or exceeds
@@ -319,5 +334,24 @@ mod tests {
             128 * 1024,
         ));
         assert_eq!(Volume::parse(&src, 0).unwrap().size(), 128 * 1024);
+    }
+
+    /// A magic over a block size ReiserFS never uses is not a superblock,
+    /// however the size field reads.
+    #[test]
+    fn rejects_a_magic_with_an_impossible_block_size() {
+        for bs in [0u16, 3000, 256] {
+            let (_t, src) = source_of(&reiserfs_image(
+                65536,
+                b"ReIsEr2Fs",
+                100,
+                bs,
+                &[0u8; 16],
+                "",
+                128 * 1024,
+            ));
+            assert!(!is_reiserfs(&src, 0), "block size {bs}");
+            assert!(Volume::parse(&src, 0).is_err(), "block size {bs}");
+        }
     }
 }

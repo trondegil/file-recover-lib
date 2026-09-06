@@ -25,6 +25,10 @@ const MAGIC: u32 = 0x28CD_3D45;
 const SIGNATURE: &[u8; 16] = b"Compressed ROMFS";
 /// Byte offsets within the superblock.
 const SIZE_OFFSET: usize = 0x04; // u32: total image size in bytes
+const FLAGS_OFFSET: usize = 0x08; // u32: feature flags
+const FUTURE_OFFSET: usize = 0x0C; // u32: reserved, always zero
+/// Every flag bit a kernel knows; a set bit outside these is not cramfs.
+const SUPPORTED_FLAGS: u32 = 0x0000_0FFF;
 const SIGNATURE_OFFSET: usize = 0x10; // 16 bytes
 const NAME_OFFSET: usize = 0x30; // 16 bytes, NUL-padded
 /// We read this much of the superblock to cover every field above.
@@ -42,19 +46,34 @@ pub struct Volume {
 }
 
 /// The byte order of a cramfs superblock at `hdr`, or `None` if it is not one.
-/// `Some(true)` is big-endian. Both the magic and the signature must match.
+/// `Some(true)` is big-endian. The magic and the signature must both match,
+/// and the fields between them must be ones `mkcramfs` writes: the reserved
+/// word is zero and no unknown flag bit is set, so a magic and signature
+/// pasted over random bytes is not taken for a volume.
 fn byte_order(hdr: &[u8]) -> Option<bool> {
     if &hdr[SIGNATURE_OFFSET..SIGNATURE_OFFSET + 16] != SIGNATURE {
         return None;
     }
     let m = hdr[0..4].try_into().unwrap();
-    if u32::from_le_bytes(m) == MAGIC {
-        Some(false)
+    let big = if u32::from_le_bytes(m) == MAGIC {
+        false
     } else if u32::from_be_bytes(m) == MAGIC {
-        Some(true)
+        true
     } else {
-        None
+        return None;
+    };
+    let rd = |o: usize| {
+        let a = hdr[o..o + 4].try_into().unwrap();
+        if big {
+            u32::from_be_bytes(a)
+        } else {
+            u32::from_le_bytes(a)
+        }
+    };
+    if rd(FUTURE_OFFSET) != 0 || rd(FLAGS_OFFSET) & !SUPPORTED_FLAGS != 0 {
+        return None;
     }
+    Some(big)
 }
 
 /// Does a cramfs superblock sit at `vol_offset`?
@@ -180,6 +199,23 @@ mod tests {
         let v = Volume::parse(&src, 0).unwrap();
         assert_eq!(v.size(), 64 * 1024);
         assert_eq!(v.label(), "fw");
+    }
+
+    #[test]
+    fn rejects_a_superblock_with_unknown_flags_or_reserved_bits() {
+        let good = cramfs_image(120 * 1024, "rootfs", false, 256 * 1024);
+        let (_t, src) = source_of(&good);
+        assert!(is_cramfs(&src, 0));
+        let mut flags = good.clone();
+        flags[FLAGS_OFFSET + 2] = 0x10; // bit 20: no kernel defines it
+        let (_t, src) = source_of(&flags);
+        assert!(!is_cramfs(&src, 0));
+        assert!(Volume::parse(&src, 0).is_err());
+        let mut future = good;
+        future[FUTURE_OFFSET] = 1;
+        let (_t, src) = source_of(&future);
+        assert!(!is_cramfs(&src, 0));
+        assert!(Volume::parse(&src, 0).is_err());
     }
 
     #[test]

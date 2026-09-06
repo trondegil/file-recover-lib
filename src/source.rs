@@ -214,21 +214,44 @@ fn same_device_impl(source: &Path, existing_output: &Path) -> bool {
     if !(src.file_type().is_block_device() || src.file_type().is_char_device()) {
         return false;
     }
-    let rdev = src.rdev();
-    let dev = out.dev();
-    if rdev == dev {
+    same_device_numbers(src.rdev(), out.dev())
+}
+
+/// The pure comparison behind [`same_device`] on Unix: does the device
+/// `src_rdev` (a block or character device's `st_rdev`) coincide with the
+/// device `out_dev` a filesystem sits on (its `st_dev`)? Equal numbers
+/// match; so does a shared major number, since the output then sits on a
+/// partition of this whole disk (Linux) or on the raw/buffered twin of the
+/// same disk (macOS). Major 0 is never a disk and never matches.
+#[cfg(unix)]
+fn same_device_numbers(src_rdev: u64, out_dev: u64) -> bool {
+    let major = if cfg!(target_os = "linux") {
+        linux_major
+    } else {
+        macos_major
+    };
+    same_device_numbers_with(src_rdev, out_dev, major)
+}
+
+#[cfg(unix)]
+fn same_device_numbers_with(src_rdev: u64, out_dev: u64, major: fn(u64) -> u64) -> bool {
+    if src_rdev == out_dev {
         return true;
     }
-    // Same major number: the output sits on a partition of this whole disk
-    // (Linux) or on the raw/buffered twin of the same disk (macOS).
-    fn major(d: u64) -> u64 {
-        if cfg!(target_os = "linux") {
-            ((d >> 32) & 0xffff_f000) | ((d >> 8) & 0xfff)
-        } else {
-            (d >> 24) & 0xff
-        }
-    }
-    major(rdev) == major(dev) && major(dev) != 0
+    major(src_rdev) == major(out_dev) && major(out_dev) != 0
+}
+
+/// The major number of a Linux `dev_t` (glibc's 64-bit encoding: 12 bits at
+/// bit 8 and 20 more at bit 32).
+#[cfg(unix)]
+fn linux_major(d: u64) -> u64 {
+    ((d >> 32) & 0xffff_f000) | ((d >> 8) & 0xfff)
+}
+
+/// The major number of a macOS/BSD `dev_t`: the top 8 bits of 32.
+#[cfg(unix)]
+fn macos_major(d: u64) -> u64 {
+    (d >> 24) & 0xff
 }
 
 #[cfg(windows)]
@@ -334,6 +357,88 @@ mod tests {
     fn the_root_disk_is_the_output_device_for_a_dir_on_it() {
         // /dev/null is a character device on a different major than any disk.
         assert!(!same_device(Path::new("/dev/null"), Path::new("/")));
+    }
+
+    /// `/dev/null` is a character device, so it passes the device-type test;
+    /// only its major number keeps it from matching a directory on a disk.
+    #[cfg(unix)]
+    #[test]
+    fn dev_null_is_not_the_device_a_temp_dir_sits_on() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(!same_device(Path::new("/dev/null"), tmp.path()));
+        let img = tmp.path().join("disk.img");
+        std::fs::write(&img, b"x").unwrap();
+        assert!(!same_device(&img, tmp.path()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn device_numbers_match_on_equality_or_shared_major() {
+        // Linux: major 8 (sd) minor 0 is the whole disk, minor 1 its first
+        // partition; major 259 (nvme, in the high bits) is another disk.
+        let linux = |major: u64, minor: u64| -> u64 {
+            ((major & 0xfff) << 8)
+                | ((major & !0xfff) << 32)
+                | (minor & 0xff)
+                | ((minor & !0xff) << 12)
+        };
+        assert_eq!(linux_major(linux(8, 0)), 8);
+        assert_eq!(linux_major(linux(259, 3)), 259);
+        assert!(same_device_numbers_with(
+            linux(8, 0),
+            linux(8, 0),
+            linux_major
+        ));
+        assert!(same_device_numbers_with(
+            linux(8, 0),
+            linux(8, 1),
+            linux_major
+        ));
+        assert!(same_device_numbers_with(
+            linux(8, 2),
+            linux(8, 1),
+            linux_major
+        ));
+        assert!(!same_device_numbers_with(
+            linux(8, 0),
+            linux(259, 1),
+            linux_major
+        ));
+        assert!(!same_device_numbers_with(
+            linux(1, 3),
+            linux(8, 1),
+            linux_major
+        )); // /dev/null vs sda1
+        assert!(!same_device_numbers_with(
+            linux(0, 5),
+            linux(0, 6),
+            linux_major
+        )); // major 0 never matches
+
+        // macOS: major 1 is the disk driver; minor numbers pick disk and slice.
+        let macos = |major: u64, minor: u64| -> u64 { (major << 24) | (minor & 0xff_ffff) };
+        assert_eq!(macos_major(macos(1, 0)), 1);
+        assert_eq!(macos_major(macos(3, 2)), 3);
+        assert!(same_device_numbers_with(
+            macos(1, 0),
+            macos(1, 0),
+            macos_major
+        ));
+        assert!(same_device_numbers_with(
+            macos(1, 0),
+            macos(1, 5),
+            macos_major
+        )); // disk0 vs disk0s5
+        assert!(!same_device_numbers_with(
+            macos(3, 2),
+            macos(1, 5),
+            macos_major
+        )); // /dev/null vs disk0s5
+        assert!(!same_device_numbers_with(
+            macos(0, 1),
+            macos(0, 2),
+            macos_major
+        ));
     }
 
     #[test]

@@ -2,6 +2,8 @@
 //! not recovered from metadata — `undelete` finds nothing and carving is the
 //! fallback (copy-on-write reclaims old tree nodes).
 
+mod common;
+
 use std::process::Command;
 
 use unearth::recover::{self, RecoverOptions};
@@ -13,19 +15,6 @@ const TOTAL_BYTES: usize = 112;
 const SECTORSIZE: usize = 144;
 const NODESIZE_OFF: usize = 148;
 const LABEL: usize = 299;
-
-/// A minimal Btrfs volume: just enough of the superblock for detection.
-fn btrfs_volume(label: &str, total_bytes: u64) -> Vec<u8> {
-    let mut v = vec![0u8; SB_OFFSET + 4096];
-    let sb = SB_OFFSET;
-    v[sb + MAGIC..sb + MAGIC + 8].copy_from_slice(b"_BHRfS_M");
-    v[sb + TOTAL_BYTES..sb + TOTAL_BYTES + 8].copy_from_slice(&total_bytes.to_le_bytes());
-    v[sb + SECTORSIZE..sb + SECTORSIZE + 4].copy_from_slice(&4096u32.to_le_bytes());
-    v[sb + NODESIZE_OFF..sb + NODESIZE_OFF + 4].copy_from_slice(&16384u32.to_le_bytes());
-    let lb = label.as_bytes();
-    v[sb + LABEL..sb + LABEL + lb.len()].copy_from_slice(lb);
-    v
-}
 
 // --- Subvolume enumeration fixture ---------------------------------------
 
@@ -147,7 +136,7 @@ fn enumerates_subvolumes_through_the_chunk_and_root_trees() {
 fn detect_reports_btrfs_with_label_but_recovers_nothing() {
     let tmp = tempfile::tempdir().unwrap();
     let img = tmp.path().join("b.img");
-    std::fs::write(&img, btrfs_volume("photos", 1 << 30)).unwrap();
+    std::fs::write(&img, common::btrfs_volume("photos", 1 << 30)).unwrap();
     let src = Source::open(&img).unwrap();
 
     let vols = recover::detect(&src).unwrap();
@@ -168,7 +157,7 @@ fn detect_reports_btrfs_with_label_but_recovers_nothing() {
 fn info_cli_shows_the_btrfs_label() {
     let tmp = tempfile::tempdir().unwrap();
     let img = tmp.path().join("b.img");
-    std::fs::write(&img, btrfs_volume("backups", 1 << 30)).unwrap();
+    std::fs::write(&img, common::btrfs_volume("backups", 1 << 30)).unwrap();
 
     let out = Command::new(env!("CARGO_BIN_EXE_unearth"))
         .args(["info", img.to_str().unwrap()])

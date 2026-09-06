@@ -823,6 +823,14 @@ fn merge_carve_stats(into: &mut carver::CarveStats, from: carver::CarveStats) {
 
 fn scan(args: ScanArgs) -> Result<()> {
     refuse_output_on_source(&args.source, &args.output)?;
+    refuse_writing_onto_source(
+        &args.source,
+        &[
+            args.report.as_deref(),
+            args.checkpoint.as_deref(),
+            args.summary.as_deref(),
+        ],
+    )?;
     let started = std::time::Instant::now();
     if args.unallocated && args.resume {
         anyhow::bail!("--unallocated cannot be combined with --resume");
@@ -1021,6 +1029,10 @@ fn scan(args: ScanArgs) -> Result<()> {
 
 fn undelete(args: UndeleteArgs) -> Result<()> {
     refuse_output_on_source(&args.source, &args.output)?;
+    refuse_writing_onto_source(
+        &args.source,
+        &[args.report.as_deref(), args.summary.as_deref()],
+    )?;
     let started = std::time::Instant::now();
     let source = Source::open(&args.source)?;
     eprintln!(
@@ -1161,6 +1173,10 @@ fn undelete(args: UndeleteArgs) -> Result<()> {
 /// into `carved/` (content-deduplicated against the undelete results).
 fn recover_all(args: RecoverArgs) -> Result<()> {
     refuse_output_on_source(&args.source, &args.output)?;
+    refuse_writing_onto_source(
+        &args.source,
+        &[args.report.as_deref(), args.summary.as_deref()],
+    )?;
     use std::collections::HashSet;
 
     let started = std::time::Instant::now();
@@ -1436,6 +1452,14 @@ fn write_recover_report(
 
 fn image(args: ImageArgs) -> Result<()> {
     refuse_output_on_source(&args.source, &args.output)?;
+    refuse_writing_onto_source(
+        &args.source,
+        &[
+            Some(args.output.as_path()),
+            args.map.as_deref(),
+            args.summary.as_deref(),
+        ],
+    )?;
     use unearth::image::{self, ImageOptions};
 
     let started = std::time::Instant::now();
@@ -1741,6 +1765,45 @@ fn refuse_output_on_source(source: &std::path::Path, output: &std::path::Path) -
         );
     }
     Ok(())
+}
+
+/// Refuse to write any of `targets` when it is the source file itself: an
+/// image, map, report, checkpoint, or summary written there would truncate
+/// the bytes being read. Aliases are caught by identity, not spelling: on
+/// Unix a hard link or symlink shares the source's `(dev, ino)`; on every
+/// platform a symlink or a relative spelling canonicalises to the same path.
+/// A hard link on Windows has no such identity here and stays undetected.
+fn refuse_writing_onto_source(
+    source: &std::path::Path,
+    targets: &[Option<&std::path::Path>],
+) -> Result<()> {
+    for target in targets.iter().flatten() {
+        if same_file(source, target) {
+            anyhow::bail!(
+                "refusing to write to {}: it is the source being read ({}). Writing there destroys the data you are trying to recover.",
+                target.display(),
+                source.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Whether two paths name one existing file.
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            if ma.dev() == mb.dev() && ma.ino() == mb.ino() {
+                return true;
+            }
+        }
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
 }
 
 fn csv_escape(s: &str) -> String {
