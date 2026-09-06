@@ -2,33 +2,18 @@
 //! user, but it is not recovered from metadata — `undelete` finds nothing and
 //! carving is the fallback.
 
+mod common;
+
 use std::process::Command;
 
 use unearth::recover::{self, RecoverOptions};
 use unearth::source::Source;
 
-const VRS_OFFSET: usize = 16 * 2048;
-const VSD_SIZE: usize = 2048;
-
-/// A minimal UDF image: a reserved area followed by a BEA01 / NSR03 / TEA01
-/// Volume Recognition Sequence at sector 16.
-fn udf_image() -> Vec<u8> {
-    let mut v = vec![0u8; VRS_OFFSET + 8 * VSD_SIZE];
-    let put = |v: &mut [u8], index: usize, id: &[u8; 5]| {
-        let off = VRS_OFFSET + index * VSD_SIZE;
-        v[off + 1..off + 6].copy_from_slice(id);
-    };
-    put(&mut v, 0, b"BEA01");
-    put(&mut v, 1, b"NSR03");
-    put(&mut v, 2, b"TEA01");
-    v
-}
-
 #[test]
 fn detect_reports_udf_but_recovers_nothing() {
     let tmp = tempfile::tempdir().unwrap();
     let img = tmp.path().join("disc.img");
-    let data = udf_image();
+    let data = common::udf_image();
     std::fs::write(&img, &data).unwrap();
     let src = Source::open(&img).unwrap();
 
@@ -49,7 +34,7 @@ fn detect_reports_udf_but_recovers_nothing() {
 fn info_cli_lists_a_udf_volume() {
     let tmp = tempfile::tempdir().unwrap();
     let img = tmp.path().join("disc.img");
-    std::fs::write(&img, udf_image()).unwrap();
+    std::fs::write(&img, common::udf_image()).unwrap();
 
     let out = Command::new(env!("CARGO_BIN_EXE_unearth"))
         .args(["info", img.to_str().unwrap()])

@@ -69,13 +69,21 @@ fn byte_order(hdr: &[u8]) -> Option<bool> {
     None
 }
 
-/// Does a BeFS superblock sit at `vol_offset`?
+/// Does a BeFS superblock sit at `vol_offset`? Both magics must match and
+/// the block size must be one BeFS uses.
 pub fn is_befs(src: &Source, vol_offset: u64) -> bool {
     let Some(at) = vol_offset.checked_add(SB_OFFSET) else {
         return false;
     };
     let mut hdr = [0u8; HEADER_LEN];
-    src.read_at(at, &mut hdr).unwrap_or(0) >= HEADER_LEN && byte_order(&hdr).is_some()
+    if src.read_at(at, &mut hdr).unwrap_or(0) < HEADER_LEN {
+        return false;
+    }
+    let Some(big) = byte_order(&hdr) else {
+        return false;
+    };
+    let block_size = rd_u32(&hdr[BLOCK_SIZE_OFFSET..], big);
+    block_size.is_power_of_two() && (1024..=8192).contains(&block_size)
 }
 
 impl Volume {
@@ -102,7 +110,9 @@ impl Volume {
                 u64::from_le_bytes(a)
             }
         };
-        if block_size == 0 {
+        // BeFS block sizes are powers of two from 1 KiB to 8 KiB; anything
+        // else is the two magics over bytes that are not a superblock.
+        if !block_size.is_power_of_two() || !(1024..=8192).contains(&block_size) {
             bail!("implausible BeFS geometry");
         }
         let used_blocks = {
@@ -263,5 +273,15 @@ mod tests {
         v[sb + MAGIC2_OFFSET..sb + MAGIC2_OFFSET + 4].copy_from_slice(&0u32.to_le_bytes());
         let (_t, src) = source_of(&v);
         assert!(!is_befs(&src, 0));
+    }
+
+    /// Both magics over a block size BeFS never uses is not a volume.
+    #[test]
+    fn rejects_magics_with_an_impossible_block_size() {
+        for bs in [0u32, 1000, 512, 16384] {
+            let (_t, src) = source_of(&befs_image("x", bs, 16, false, 64 * 1024));
+            assert!(!is_befs(&src, 0), "block size {bs}");
+            assert!(Volume::parse(&src, 0).is_err(), "block size {bs}");
+        }
     }
 }

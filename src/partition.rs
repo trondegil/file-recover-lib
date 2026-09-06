@@ -413,7 +413,7 @@ fn read_mbr(src: &Source) -> Option<Table> {
 }
 
 /// MBR partition type codes for an extended (container) partition.
-fn is_extended_mbr(kind: u8) -> bool {
+pub(crate) fn is_extended_mbr(kind: u8) -> bool {
     matches!(kind, 0x05 | 0x0F | 0x85)
 }
 
@@ -422,7 +422,7 @@ fn is_extended_mbr(kind: u8) -> bool {
 /// logical partition (offset relative to the EBR) and a pointer to the next EBR
 /// (offset relative to the extended-partition base). Bounded against a
 /// malformed or cyclic chain.
-fn walk_ebr_chain(src: &Source, ext_base_lba: u64, out: &mut Vec<Partition>) {
+pub(crate) fn walk_ebr_chain(src: &Source, ext_base_lba: u64, out: &mut Vec<Partition>) {
     const MAX_LOGICAL: usize = 256;
     let mut ebr_lba = ext_base_lba;
     let mut visited = std::collections::HashSet::new();

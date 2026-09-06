@@ -452,12 +452,7 @@ impl Volume {
         data: &DataAttr,
         times: (Option<std::time::SystemTime>, Option<std::time::SystemTime>),
     ) -> Result<(u64, [u8; 32])> {
-        let target = unique_path(out_dir, rel);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
-        let file =
-            fs::File::create(&target).with_context(|| format!("creating {}", target.display()))?;
+        let (_target, file) = crate::recover::create_output_file(out_dir, rel)?;
         let mut out = HashingWriter::new(file);
 
         let written = match &data.kind {

@@ -38,7 +38,6 @@
 //! space are gone — fall back to `scan` (carving).
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -756,11 +755,7 @@ impl Volume {
         overflow: &OverflowExtents,
     ) -> Option<(u64, [u8; 32])> {
         let data = self.read_file_data(src, rec, overflow)?;
-        let target = unique_path(out_dir, rel);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).ok()?;
-        }
-        let mut out = fs::File::create(&target).ok()?;
+        let (_target, mut out) = crate::recover::create_output_file(out_dir, rel).ok()?;
         out.write_all(&data).ok()?;
         out.flush().ok();
         let mtime = crate::times::from_unix(hfs_to_unix(rec.mod_date));
@@ -1046,10 +1041,6 @@ fn sanitize_component(name: &str) -> String {
     // HFS+ stores a `/` in a name as `:` (the classic Mac OS separator), so a
     // colon here is a slash and is neutralised the same way.
     crate::recover::sanitize_component(&name.replace(':', "_"))
-}
-
-fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
-    crate::recover::unique_path(out_dir, rel)
 }
 
 #[cfg(test)]

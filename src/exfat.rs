@@ -19,11 +19,10 @@
 //! chain survived the delete).
 
 use std::collections::HashSet;
-use std::fs;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use crate::hash::HashingWriter;
 use crate::recover::{RecoverOptions, RecoverStats};
@@ -401,12 +400,7 @@ impl Volume {
         df: &DeletedFile,
         bitmap: Option<&[u8]>,
     ) -> Result<(u64, [u8; 32])> {
-        let target = unique_path(out_dir, &df.path);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
-        let file =
-            fs::File::create(&target).with_context(|| format!("creating {}", target.display()))?;
+        let (_target, file) = crate::recover::create_output_file(out_dir, &df.path)?;
         let mut out = HashingWriter::new(file);
 
         let written = if df.no_fat_chain {
@@ -421,7 +415,12 @@ impl Volume {
                 // `fragmented` scenario). A fresh file and hasher discard the
                 // partial chain's bytes.
                 _ => {
-                    out = HashingWriter::new(fs::File::create(&target)?);
+                    // Rewind the file we created rather than reopening the
+                    // path, so nothing swapped in at that name is followed.
+                    let (mut file, _) = out.into_parts();
+                    file.set_len(0)?;
+                    file.seek(SeekFrom::Start(0))?;
+                    out = HashingWriter::new(file);
                     self.copy_skipping_allocated(src, df, bitmap, &mut out)?
                 }
             }
@@ -754,11 +753,6 @@ fn parse_entry_sets(bytes: &[u8]) -> Vec<Item> {
 /// Make a single path component safe to write to disk.
 fn sanitize_component(name: &str) -> String {
     crate::recover::sanitize_component(name)
-}
-
-/// Build a non-colliding output path by appending a counter if needed.
-fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
-    crate::recover::unique_path(out_dir, rel)
 }
 
 #[cfg(test)]

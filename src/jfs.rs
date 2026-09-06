@@ -46,13 +46,30 @@ pub struct Volume {
     uuid: Option<String>,
 }
 
-/// Does a JFS aggregate superblock sit at `vol_offset`?
+/// Does a JFS aggregate superblock sit at `vol_offset`? The magic must be
+/// backed by block sizes JFS uses, so a magic over random bytes is not one.
 pub fn is_jfs(src: &Source, vol_offset: u64) -> bool {
     let Some(at) = vol_offset.checked_add(SB_OFFSET) else {
         return false;
     };
-    let mut magic = [0u8; 4];
-    src.read_at(at, &mut magic).unwrap_or(0) >= 4 && &magic == MAGIC
+    let mut hdr = [0u8; PBSIZE_OFFSET + 4];
+    if src.read_at(at, &mut hdr).unwrap_or(0) < hdr.len() || &hdr[0..4] != MAGIC {
+        return false;
+    }
+    let block_size =
+        u32::from_le_bytes(hdr[BSIZE_OFFSET..BSIZE_OFFSET + 4].try_into().unwrap()) as u64;
+    let pbsize =
+        u32::from_le_bytes(hdr[PBSIZE_OFFSET..PBSIZE_OFFSET + 4].try_into().unwrap()) as u64;
+    geometry_ok(block_size, pbsize)
+}
+
+/// JFS aggregates use a physical block size of 512 B to 4 KiB and an
+/// allocation block size from that up to 64 KiB, both powers of two.
+fn geometry_ok(block_size: u64, pbsize: u64) -> bool {
+    pbsize.is_power_of_two()
+        && (512..=4096).contains(&pbsize)
+        && block_size.is_power_of_two()
+        && (pbsize..=65536).contains(&block_size)
 }
 
 impl Volume {
@@ -71,7 +88,9 @@ impl Volume {
         let blocks = u64::from_le_bytes(hdr[SIZE_OFFSET..SIZE_OFFSET + 8].try_into().unwrap());
         let pbsize =
             u32::from_le_bytes(hdr[PBSIZE_OFFSET..PBSIZE_OFFSET + 4].try_into().unwrap()) as u64;
-        if blocks == 0 || pbsize == 0 {
+        let block_size =
+            u32::from_le_bytes(hdr[BSIZE_OFFSET..BSIZE_OFFSET + 4].try_into().unwrap()) as u64;
+        if blocks == 0 || !geometry_ok(block_size, pbsize) {
             bail!("implausible JFS geometry");
         }
         // Fall back to the source span if the recorded size overflows or exceeds
@@ -81,8 +100,6 @@ impl Volume {
             .checked_mul(pbsize)
             .filter(|&b| b <= fallback.max(pbsize))
             .unwrap_or(fallback);
-        let block_size =
-            u32::from_le_bytes(hdr[BSIZE_OFFSET..BSIZE_OFFSET + 4].try_into().unwrap()) as u64;
         let time = u32::from_le_bytes(hdr[TIME_OFFSET..TIME_OFFSET + 4].try_into().unwrap());
         let written = (time != 0).then_some(time as u64);
         let uuid = format_uuid(&hdr[UUID_OFFSET..UUID_OFFSET + 16]);
@@ -206,5 +223,22 @@ mod tests {
         // A block count that overflows the source falls back to the span.
         let (_t, src) = source_of(&jfs_image(u64::MAX, 512, &[0u8; 16], "", 64 * 1024));
         assert_eq!(Volume::parse(&src, 0).unwrap().size(), 64 * 1024);
+    }
+
+    /// A magic over block sizes JFS never uses is not a superblock.
+    #[test]
+    fn rejects_a_magic_with_impossible_block_sizes() {
+        for pbsize in [0u32, 3000, 8192, 256] {
+            let (_t, src) = source_of(&jfs_image(100, pbsize, &[0u8; 16], "", 64 * 1024));
+            assert!(!is_jfs(&src, 0), "pbsize {pbsize}");
+            assert!(Volume::parse(&src, 0).is_err(), "pbsize {pbsize}");
+        }
+        // The allocation block size must be a power of two at least pbsize.
+        let mut v = jfs_image(100, 512, &[0u8; 16], "", 64 * 1024);
+        let sb = SB_OFFSET as usize;
+        v[sb + BSIZE_OFFSET..sb + BSIZE_OFFSET + 4].copy_from_slice(&3000u32.to_le_bytes());
+        let (_t, src) = source_of(&v);
+        assert!(!is_jfs(&src, 0));
+        assert!(Volume::parse(&src, 0).is_err());
     }
 }

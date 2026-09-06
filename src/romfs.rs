@@ -34,21 +34,54 @@ pub struct Volume {
     label: String,
 }
 
-/// Does a romfs header sit at `vol_offset`?
+/// The header checksum covers this much of the image: the big-endian 32-bit
+/// words of the first 512 bytes (or the whole image when smaller) sum to
+/// zero, the checksum field included.
+const CHECKSUM_SPAN: usize = 512;
+
+/// Does a romfs header sit at `vol_offset`? The magic alone is eight bytes,
+/// but a magic with random bytes behind it is not a volume: the header
+/// checksum must hold too.
 pub fn is_romfs(src: &Source, vol_offset: u64) -> bool {
-    let mut m = [0u8; 8];
-    src.read_at(vol_offset, &mut m).unwrap_or(0) >= 8 && &m == MAGIC
+    let mut head = [0u8; CHECKSUM_SPAN];
+    let n = src.read_at(vol_offset, &mut head).unwrap_or(0);
+    n >= NAME_OFFSET && head[0..8] == *MAGIC && checksum_ok(&head[..n])
+}
+
+/// Whether the romfs header checksum holds over `head` (the first 512 bytes
+/// of the image, or all of it if shorter). `mkfs` picks the checksum field
+/// so the big-endian word sum wraps to zero.
+fn checksum_ok(head: &[u8]) -> bool {
+    let recorded = u32::from_be_bytes(head[SIZE_OFFSET..SIZE_OFFSET + 4].try_into().unwrap());
+    let span = head
+        .len()
+        .min(CHECKSUM_SPAN)
+        .min(recorded.max(NAME_OFFSET as u32) as usize);
+    let sum = head[..span]
+        .chunks(4)
+        .map(|w| {
+            let mut b = [0u8; 4];
+            b[..w.len()].copy_from_slice(w);
+            u32::from_be_bytes(b)
+        })
+        .fold(0u32, |acc, w| acc.wrapping_add(w));
+    sum == 0
 }
 
 impl Volume {
     /// Parse the romfs header at `offset`, failing if there is none.
     pub fn parse(src: &Source, offset: u64) -> Result<Volume> {
-        let mut hdr = [0u8; HEADER_LEN];
+        let mut head = [0u8; CHECKSUM_SPAN];
         // A short read is fine as long as it covers the magic and size.
-        let n = src.read_at(offset, &mut hdr)?;
-        if n < NAME_OFFSET || &hdr[0..8] != MAGIC {
+        let n = src.read_at(offset, &mut head)?;
+        if n < NAME_OFFSET || &head[0..8] != MAGIC {
             bail!("not a romfs volume");
         }
+        if !checksum_ok(&head[..n]) {
+            bail!("romfs header checksum does not hold");
+        }
+        let hdr = &head[..n.min(HEADER_LEN)];
+        let n = hdr.len();
         let recorded =
             u32::from_be_bytes(hdr[SIZE_OFFSET..SIZE_OFFSET + 4].try_into().unwrap()) as u64;
         // Fall back to the source span when the recorded size is zero or exceeds
@@ -102,13 +135,26 @@ impl Volume {
 mod tests {
     use super::*;
 
-    /// Build a romfs volume of `total` bytes.
+    /// Build a romfs volume of `total` bytes, with the header checksum set
+    /// the way `genromfs` sets it.
     fn romfs_image(size: u32, name: &str, total: usize) -> Vec<u8> {
         let mut v = vec![0u8; total];
         v[0..8].copy_from_slice(MAGIC);
         v[SIZE_OFFSET..SIZE_OFFSET + 4].copy_from_slice(&size.to_be_bytes());
         let nb = name.as_bytes();
         v[NAME_OFFSET..NAME_OFFSET + nb.len()].copy_from_slice(nb);
+        let span = total
+            .min(CHECKSUM_SPAN)
+            .min(size.max(NAME_OFFSET as u32) as usize);
+        let sum = v[..span]
+            .chunks(4)
+            .map(|w| {
+                let mut b = [0u8; 4];
+                b[..w.len()].copy_from_slice(w);
+                u32::from_be_bytes(b)
+            })
+            .fold(0u32, |acc, w| acc.wrapping_add(w));
+        v[12..16].copy_from_slice(&(0u32.wrapping_sub(sum)).to_be_bytes());
         v
     }
 
@@ -134,6 +180,17 @@ mod tests {
         let (_t, src) = source_of(&romfs_image(0xFFFF_FFFF, "x", 64 * 1024));
         let v = Volume::parse(&src, 0).unwrap();
         assert_eq!(v.size(), 64 * 1024);
+    }
+
+    /// The magic with a wrong checksum is random data wearing a magic, not a
+    /// volume: it must not be reported, whatever the size field says.
+    #[test]
+    fn rejects_a_magic_whose_checksum_does_not_hold() {
+        let mut v = romfs_image(90 * 1024, "boot", 256 * 1024);
+        v[12] ^= 0x01;
+        let (_t, src) = source_of(&v);
+        assert!(!is_romfs(&src, 0));
+        assert!(Volume::parse(&src, 0).is_err());
     }
 
     #[test]

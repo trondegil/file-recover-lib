@@ -223,8 +223,11 @@ pub fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
     } else {
         rel
     };
+    // `symlink_metadata`, not `exists`: a dangling symlink is still something
+    // at that path, and must not be written through.
+    let occupied = |p: &Path| std::fs::symlink_metadata(p).is_ok();
     let candidate = out_dir.join(&rel);
-    if !candidate.exists() {
+    if !occupied(&candidate) {
         return candidate;
     }
     let stem = rel
@@ -239,8 +242,96 @@ pub fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
             None => format!("{stem}_{i}"),
         };
         let candidate = out_dir.join(&parent).join(name);
-        if !candidate.exists() {
+        if !occupied(&candidate) {
             return candidate;
+        }
+    }
+    unreachable!()
+}
+
+/// Create the file a recovered path will be written to, inside `out_dir`.
+///
+/// This is the one place recovered bytes get a file: every undelete backend
+/// and the carver go through it. The relative path is confined (see
+/// [`confine`]), each parent directory is created as a real directory (a
+/// symlink already sitting at one of those names is refused rather than
+/// followed, so a link planted in the output tree cannot redirect a write
+/// outside it), and the file itself is opened with `create_new`, which
+/// fails on anything already at that path, a symlink included, instead of
+/// truncating or following it. A taken name gets a `_N` counter, as
+/// [`unique_path`] would give it. Returns the path that was created and the
+/// open, empty file.
+///
+/// The parent check is check-then-act, so a link swapped in between the
+/// check and the create could still be followed by `create_dir`; the final
+/// component has no such window because `create_new` is atomic.
+pub fn create_output_file(out_dir: &Path, rel: &Path) -> Result<(PathBuf, std::fs::File)> {
+    use std::io::ErrorKind;
+    let rel = confine(rel);
+    let rel = if rel.as_os_str().is_empty() {
+        PathBuf::from("_recovered")
+    } else {
+        rel
+    };
+    // The output directory itself may be whatever the user chose, a symlink
+    // included; only the components under it are ours to police.
+    std::fs::create_dir_all(out_dir)
+        .map_err(|e| anyhow::anyhow!("creating {}: {e}", out_dir.display()))?;
+    let mut dir = out_dir.to_path_buf();
+    if let Some(parent) = rel.parent() {
+        for comp in parent.components() {
+            dir.push(comp);
+            // Two tries: the second handles a directory that appeared between
+            // the check and the create.
+            for attempt in 0..2 {
+                match std::fs::symlink_metadata(&dir) {
+                    Ok(m) if m.file_type().is_symlink() => bail!(
+                        "refusing to write through {}: it is a symbolic link inside the output directory",
+                        dir.display()
+                    ),
+                    Ok(m) if m.is_dir() => break,
+                    Ok(_) => bail!(
+                        "cannot create directory {}: a file is in the way",
+                        dir.display()
+                    ),
+                    Err(e) if e.kind() == ErrorKind::NotFound => {
+                        match std::fs::create_dir(&dir) {
+                            Ok(()) => break,
+                            Err(e) if e.kind() == ErrorKind::AlreadyExists && attempt == 0 => {}
+                            Err(e) => bail!("creating {}: {e}", dir.display()),
+                        }
+                    }
+                    Err(e) => bail!("inspecting {}: {e}", dir.display()),
+                }
+            }
+        }
+    }
+    let file_name = rel
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "_recovered".to_string());
+    let (stem, ext) = match (rel.file_stem(), rel.extension()) {
+        (Some(s), Some(e)) => (
+            s.to_string_lossy().into_owned(),
+            Some(e.to_string_lossy().into_owned()),
+        ),
+        _ => (file_name.clone(), None),
+    };
+    for i in 0u64.. {
+        let name = match (i, &ext) {
+            (0, _) => file_name.clone(),
+            (i, Some(e)) => format!("{stem}_{i}.{e}"),
+            (i, None) => format!("{stem}_{i}"),
+        };
+        let candidate = dir.join(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(f) => return Ok((candidate, f)),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => bail!("creating {}: {e}", candidate.display()),
         }
     }
     unreachable!()
@@ -1071,11 +1162,14 @@ pub fn detect(src: &Source) -> Result<Vec<Volume>> {
         return Ok(gpt);
     }
 
-    // 3. A legacy MBR partition table.
+    // 3. A legacy MBR partition table. An extended entry (type 0x05/0x0F/0x85)
+    // is a container: its logical partitions hang off a chain of Extended
+    // Boot Records, each naming one partition and the next record.
     let mut volumes = Vec::new();
     if sector0[510] == 0x55 && sector0[511] == 0xAA {
         for i in 0..4 {
             let base = 446 + i * 16;
+            let kind = sector0[base + 4];
             let lba_start = u32::from_le_bytes([
                 sector0[base + 8],
                 sector0[base + 9],
@@ -1085,8 +1179,18 @@ pub fn detect(src: &Source) -> Result<Vec<Volume>> {
             if lba_start == 0 {
                 continue;
             }
+            if crate::partition::is_extended_mbr(kind) {
+                let mut logical = Vec::new();
+                crate::partition::walk_ebr_chain(src, lba_start as u64, &mut logical);
+                for p in logical {
+                    if let Some(v) = try_parse_volume(src, p.start)? {
+                        push_unique(&mut volumes, v);
+                    }
+                }
+                continue;
+            }
             if let Some(v) = try_parse_volume(src, lba_start as u64 * 512)? {
-                volumes.push(v);
+                push_unique(&mut volumes, v);
             }
         }
     }
@@ -1096,7 +1200,7 @@ pub fn detect(src: &Source) -> Result<Vec<Volume>> {
     if volumes.is_empty() {
         for p in crate::partition::read_apm(src).unwrap_or_default() {
             if let Some(v) = try_parse_volume(src, p.start)? {
-                volumes.push(v);
+                push_unique(&mut volumes, v);
             }
         }
     }
@@ -1105,6 +1209,15 @@ pub fn detect(src: &Source) -> Result<Vec<Volume>> {
         bail!("no FAT, exFAT, NTFS, ReFS, ext2/3/4, XFS, F2FS, ReiserFS, JFS, NILFS2, GFS2, OCFS2, Minix, bcachefs, BeFS, UFS, EROFS, cramfs, romfs, HFS, HFS+, APFS, Btrfs, LVM2, Linux MD/RAID, Linux swap, APM, UDF, ISO 9660, or encrypted (LUKS/BitLocker) volume found");
     }
     Ok(volumes)
+}
+
+/// Add `v` unless a volume at the same offset is already listed: two table
+/// entries naming one start (an overlapping or duplicated entry) describe one
+/// volume, and recovering it twice would double every file.
+fn push_unique(volumes: &mut Vec<Volume>, v: Volume) {
+    if !volumes.iter().any(|x| x.offset() == v.offset()) {
+        volumes.push(v);
+    }
 }
 
 /// Scan the whole source for filesystem signatures at `step`-aligned offsets,
@@ -1322,50 +1435,64 @@ fn try_parse_volume(src: &Source, offset: u64) -> Result<Option<Volume>> {
 }
 
 /// Detect volumes via a GPT, supporting 512- and 4096-byte logical sectors.
-/// Returns an empty vec when the source is not GPT-partitioned.
+/// The primary header at LBA 1 is used when it is intact; otherwise the
+/// backup header at the last LBA, which carries its own copy of the entry
+/// array, so a disk whose first sectors were overwritten still lists its
+/// partitions. Returns an empty vec when the source is not GPT-partitioned.
 fn detect_gpt(src: &Source) -> Result<Vec<Volume>> {
     for sector_size in [512u64, 4096] {
-        let mut hdr = [0u8; 92];
-        if src.read_at(sector_size, &mut hdr)? < 92 {
-            continue;
+        if let Some(volumes) = detect_gpt_at(src, sector_size, sector_size)? {
+            return Ok(volumes);
         }
-        if &hdr[0..8] != b"EFI PART" {
-            continue;
-        }
-        let entry_lba = u64::from_le_bytes(hdr[72..80].try_into().unwrap());
-        let num_entries = u32::from_le_bytes(hdr[80..84].try_into().unwrap()) as u64;
-        let entry_size = u32::from_le_bytes(hdr[84..88].try_into().unwrap()) as u64;
-        if !(128..=4096).contains(&entry_size) {
-            continue;
-        }
-        let num_entries = num_entries.min(1024); // guard against corruption
-        let array_start = match entry_lba.checked_mul(sector_size) {
-            Some(v) => v,
-            None => continue,
-        };
-
-        let mut volumes = Vec::new();
-        let mut entry = vec![0u8; entry_size as usize];
-        for i in 0..num_entries {
-            let off = array_start + i * entry_size;
-            if src.read_at(off, &mut entry)? < entry_size as usize {
-                break;
-            }
-            // An all-zero type GUID marks an unused entry.
-            if entry[0..16].iter().all(|&b| b == 0) {
-                continue;
-            }
-            let start_lba = u64::from_le_bytes(entry[32..40].try_into().unwrap());
-            if start_lba == 0 {
-                continue;
-            }
-            if let Some(v) = try_parse_volume(src, start_lba * sector_size)? {
-                volumes.push(v);
+        if let Some(backup) = src.size.checked_sub(sector_size) {
+            if backup >= sector_size {
+                if let Some(volumes) = detect_gpt_at(src, sector_size, backup)? {
+                    return Ok(volumes);
+                }
             }
         }
-        return Ok(volumes);
     }
     Ok(vec![])
+}
+
+/// Read the GPT header at byte offset `hdr_off` and probe every partition
+/// its entry array names. `None` when there is no usable header there.
+fn detect_gpt_at(src: &Source, sector_size: u64, hdr_off: u64) -> Result<Option<Vec<Volume>>> {
+    let mut hdr = [0u8; 92];
+    if src.read_at(hdr_off, &mut hdr)? < 92 || &hdr[0..8] != b"EFI PART" {
+        return Ok(None);
+    }
+    let entry_lba = u64::from_le_bytes(hdr[72..80].try_into().unwrap());
+    let num_entries = u32::from_le_bytes(hdr[80..84].try_into().unwrap()) as u64;
+    let entry_size = u32::from_le_bytes(hdr[84..88].try_into().unwrap()) as u64;
+    if !(128..=4096).contains(&entry_size) {
+        return Ok(None);
+    }
+    let num_entries = num_entries.min(1024); // guard against corruption
+    let Some(array_start) = entry_lba.checked_mul(sector_size) else {
+        return Ok(None);
+    };
+
+    let mut volumes = Vec::new();
+    let mut entry = vec![0u8; entry_size as usize];
+    for i in 0..num_entries {
+        let off = array_start.saturating_add(i.saturating_mul(entry_size));
+        if src.read_at(off, &mut entry)? < entry_size as usize {
+            break;
+        }
+        // An all-zero type GUID marks an unused entry.
+        if entry[0..16].iter().all(|&b| b == 0) {
+            continue;
+        }
+        let start_lba = u64::from_le_bytes(entry[32..40].try_into().unwrap());
+        if start_lba == 0 {
+            continue;
+        }
+        if let Some(v) = try_parse_volume(src, start_lba.saturating_mul(sector_size))? {
+            push_unique(&mut volumes, v);
+        }
+    }
+    Ok(Some(volumes))
 }
 
 /// Parse a single volume at an explicit byte offset, trying each backend.

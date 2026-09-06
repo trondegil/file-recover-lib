@@ -24,11 +24,10 @@
 //! the name characters themselves survive.
 
 use std::collections::HashSet;
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use crate::hash::HashingWriter;
 use crate::recover::{RecoverOptions, RecoverStats};
@@ -495,12 +494,7 @@ impl Volume {
         df: &DeletedFile,
         fat: Option<&[u8]>,
     ) -> Result<(u64, [u8; 32])> {
-        let target = unique_path(out_dir, &df.path);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
-        let file =
-            fs::File::create(&target).with_context(|| format!("creating {}", target.display()))?;
+        let (_target, file) = crate::recover::create_output_file(out_dir, &df.path)?;
         let mut out = HashingWriter::new(file);
 
         let cb = self.cluster_bytes();
@@ -928,11 +922,6 @@ fn assemble_lfn(parts: &[String]) -> String {
 /// Make a single path component safe to write to disk.
 fn sanitize_component(name: &str) -> String {
     crate::recover::sanitize_component(name)
-}
-
-/// Build a non-colliding output path by appending a counter if needed.
-fn unique_path(out_dir: &Path, rel: &Path) -> PathBuf {
-    crate::recover::unique_path(out_dir, rel)
 }
 
 #[cfg(test)]

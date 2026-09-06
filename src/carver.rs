@@ -7137,29 +7137,23 @@ fn write_file(
     // name keeps the `<ext>/` prefix so `verify` still resolves it.
     // Both names are generated here, but they still pass through the write
     // barrier: nothing gets created outside the output directory.
-    let (name, path): (String, PathBuf) = if opts.organize {
-        (
-            format!("{}/{}", ext, base),
-            opts.output_dir.join(crate::recover::confine(
-                &std::path::Path::new(ext).join(&base),
-            )),
-        )
+    let rel: PathBuf = if opts.organize {
+        std::path::Path::new(ext).join(&base)
     } else {
-        (
-            base.clone(),
-            opts.output_dir
-                .join(crate::recover::confine(std::path::Path::new(&base))),
-        )
+        PathBuf::from(&base)
     };
     // In dry-run mode nothing is written; the bytes are still read and hashed so
     // the tally, manifest, and dedup behave exactly as a real run would.
-    let mut out = if opts.dry_run {
-        None
+    let (name, path, mut out): (String, PathBuf, Option<fs::File>) = if opts.dry_run {
+        let rel = crate::recover::confine(&rel);
+        (manifest_name(&rel), opts.output_dir.join(rel), None)
     } else {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
-        Some(fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?)
+        let (path, file) = crate::recover::create_output_file(&opts.output_dir, &rel)?;
+        let rel = path
+            .strip_prefix(&opts.output_dir)
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|_| rel.clone());
+        (manifest_name(&rel), path, Some(file))
     };
 
     let mut remaining = len;
@@ -7219,6 +7213,16 @@ fn write_file(
         confidence,
     });
     Ok(())
+}
+
+/// The name a carved file gets in the manifest: its path relative to the
+/// output directory with `/` separators on every platform, so `verify` can
+/// resolve it wherever the manifest is read.
+fn manifest_name(rel: &std::path::Path) -> String {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Naive substring search. Fine here: the haystack window is ~1 MiB and the
