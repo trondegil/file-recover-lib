@@ -481,3 +481,133 @@ fn carved_files_are_graded_by_confidence() {
     assert_eq!(stats.verified, 1);
     assert_eq!(stats.plausible, 1);
 }
+
+// --- Grading negatives ---------------------------------------------------------
+
+fn carve_with(img: &[u8], types: &[&str], max_size: Option<u64>) -> carver::CarveStats {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("disk.img");
+    std::fs::write(&p, img).unwrap();
+    let source = Source::open(&p).unwrap();
+    let sigs =
+        signatures::select(&types.iter().map(|t| t.to_string()).collect::<Vec<_>>()).unwrap();
+    let opts = CarveOptions {
+        output_dir: tmp.path().join("out"),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size,
+        max_files: None,
+        allow_nested: false,
+        validate: true,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run: false,
+        align: 1,
+    };
+    carver::carve(&source, &sigs, &opts, &NoProgress).unwrap()
+}
+
+/// A JPEG with no EOI has no length the format vouches for, so it is not
+/// carved at all, `--max-size` or not: a cap is not a footer. The truncated
+/// grade belongs to formats whose structure walk runs into the cap.
+#[test]
+fn a_jpeg_without_an_eoi_is_not_carved_even_under_a_size_cap() {
+    let mut img = filler(40, 1024);
+    img.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xE0]);
+    img.extend((0..20_000u32).map(|i| (i % 251) as u8)); // never 0xFF
+    let stats = carve_with(&img, &["jpg"], Some(8000));
+    assert_eq!(stats.files_recovered, 0);
+    assert_eq!(stats.truncated, 0);
+}
+
+#[test]
+fn a_png_with_a_valid_iend_is_verified() {
+    let mut img = filler(41, 1024);
+    let png = make_png(&filler(42, 3000));
+    img.extend_from_slice(&png);
+    img.extend_from_slice(&filler(43, 1024));
+    let stats = carve_with(&img, &["png"], None);
+    assert_eq!(stats.files_recovered, 1);
+    assert_eq!(stats.files[0].size, png.len() as u64);
+    assert_eq!(stats.files[0].confidence, carver::Confidence::Verified);
+    assert_eq!(
+        (stats.verified, stats.plausible, stats.truncated),
+        (1, 0, 0)
+    );
+}
+
+/// A size-field format with no structural validator (WAV) is plausible: the
+/// length came from the format, but nothing checked the header beyond its
+/// magic.
+#[test]
+fn a_size_field_format_without_a_validator_is_plausible() {
+    let body = filler(44, 2000);
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&((4 + 8 + body.len()) as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEdata");
+    wav.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&body);
+    let mut img = filler(45, 1024);
+    img.extend_from_slice(&wav);
+    img.extend_from_slice(&filler(46, 1024));
+    let stats = carve_with(&img, &["wav"], None);
+    assert_eq!(stats.files_recovered, 1);
+    assert_eq!(stats.files[0].size, wav.len() as u64);
+    assert_eq!(stats.files[0].confidence, carver::Confidence::Plausible);
+    assert_eq!(
+        (stats.verified, stats.plausible, stats.truncated),
+        (0, 1, 0)
+    );
+}
+
+/// The end-of-run counts are the grades, tallied: one of each here.
+#[test]
+fn end_of_run_counts_match_the_grades() {
+    let png = make_png(&filler(47, 1500));
+    let body = filler(48, 1500);
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&((4 + 8 + body.len()) as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEdata");
+    wav.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&body);
+    // An ISO-BMFF file whose mdat box claims more than the source holds: the
+    // box walk runs into the source end and the grade says so.
+    let mut mp4 = Vec::new();
+    mp4.extend_from_slice(&16u32.to_be_bytes());
+    mp4.extend_from_slice(b"ftypisom");
+    mp4.extend_from_slice(&0u32.to_be_bytes());
+    mp4.extend_from_slice(&(8 + 9000u32).to_be_bytes());
+    mp4.extend_from_slice(b"mdat");
+    mp4.extend_from_slice(&filler(49, 3000)); // 6000 bytes short of its claim
+
+    let mut img = filler(50, 1024);
+    img.extend_from_slice(&png);
+    img.extend_from_slice(&filler(51, 1024));
+    img.extend_from_slice(&wav);
+    img.extend_from_slice(&filler(52, 1024));
+    img.extend_from_slice(&mp4);
+    let stats = carve_with(&img, &["png", "wav", "mp4"], None);
+    assert_eq!(stats.files_recovered, 3);
+    let mut grades: Vec<(String, carver::Confidence)> = stats
+        .files
+        .iter()
+        .map(|f| (f.ext.clone(), f.confidence))
+        .collect();
+    grades.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        grades,
+        vec![
+            ("mp4".to_string(), carver::Confidence::Truncated),
+            ("png".to_string(), carver::Confidence::Verified),
+            ("wav".to_string(), carver::Confidence::Plausible),
+        ]
+    );
+    assert_eq!(
+        (stats.verified, stats.plausible, stats.truncated),
+        (1, 1, 1)
+    );
+}

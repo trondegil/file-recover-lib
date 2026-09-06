@@ -119,17 +119,20 @@ fn hfs_time(secs: u32) -> Option<u64> {
 }
 
 /// Additional data-fork extents keyed by file CNID, recovered from the
-/// extents-overflow B-tree and already concatenated in fork order. These are
-/// the 9th-and-later extents of a file fragmented beyond the eight stored
-/// inline in its catalog record.
-type OverflowExtents = HashMap<u32, Vec<(u32, u32)>>;
+/// extents-overflow B-tree, each record kept with its `startBlock` key (the
+/// fork-relative block its extents begin at) and sorted by it. These are the
+/// 9th-and-later extents of a file fragmented beyond the eight stored inline
+/// in its catalog record. The key is what places a record: a record whose
+/// key is not exactly where the previous extents ended describes a gap, a
+/// duplicate, or a stray, and the file stops there rather than take blocks
+/// that are not its own.
+type OverflowExtents = HashMap<u32, PendingRuns>;
 
 /// One parsed extents-overflow leaf record: `(forkType, fileID, startBlock,
 /// extents)`.
 type ExtentRecord = (u8, u32, u32, Vec<(u32, u32)>);
 
-/// Pending overflow runs for one file before ordering: `(startBlock key,
-/// extents)` pairs, sorted by key and flattened into [`OverflowExtents`].
+/// Overflow runs for one file: `(startBlock key, extents)` pairs.
 type PendingRuns = Vec<(u32, Vec<(u32, u32)>)>;
 
 /// Old HFS master-directory-block signature (`"BD"`). When such a volume embeds
@@ -621,7 +624,18 @@ impl Volume {
     ) -> Option<Vec<u8>> {
         let mut extents = rec.extents.clone();
         if let Some(extra) = overflow.get(&rec.file_id) {
-            extents.extend_from_slice(extra);
+            // Each overflow record must start exactly where the extents so
+            // far end. A gap, an overlap (two records for one range), or a
+            // stray key ends the map: the file comes back short, never
+            // padded with blocks that belong to something else.
+            let mut covered: u64 = extents.iter().map(|&(_, c)| c as u64).sum();
+            for (key, runs) in extra {
+                if *key as u64 != covered {
+                    break;
+                }
+                covered += runs.iter().map(|&(_, c)| c as u64).sum::<u64>();
+                extents.extend_from_slice(runs);
+            }
         }
         let mut data: Vec<u8> =
             Vec::with_capacity(rec.logical_size.min(MAX_CATALOG as u64) as usize);
@@ -702,8 +716,7 @@ impl Volume {
         }
         for (file_id, mut recs) in by_file {
             recs.sort_by_key(|&(sb, _)| sb);
-            let flat: Vec<(u32, u32)> = recs.into_iter().flat_map(|(_, e)| e).collect();
-            out.insert(file_id, flat);
+            out.insert(file_id, recs);
         }
         out
     }

@@ -499,7 +499,9 @@ impl Volume {
             }
             match self.write_file(src, out_dir, &rel, &inode, size) {
                 Ok((written, digest)) if written > 0 => {
-                    stats.record_recovered(rel, size, Some(digest))
+                    // The report carries the bytes written: the inode's size
+                    // unless the source ended first.
+                    stats.record_recovered(rel, written, Some(digest))
                 }
                 _ => stats.record_skipped(rel, size),
             }

@@ -359,7 +359,9 @@ impl Volume {
             }
             match self.write_file(src, out_dir, &df, bitmap.as_deref()) {
                 Ok((written, digest)) if written > 0 || df.data_length == 0 => {
-                    stats.record_recovered(df.path.clone(), df.data_length, Some(digest))
+                    // The report carries the bytes written: the entry's length
+                    // unless the clusters ran out.
+                    stats.record_recovered(df.path.clone(), written, Some(digest))
                 }
                 _ => stats.record_skipped(df.path.clone(), df.data_length),
             }

@@ -908,3 +908,235 @@ pub fn fat32_lfn_volume(long_name: &str, payload: &[u8]) -> Vec<u8> {
     v[e..e + 32].copy_from_slice(&short);
     v
 }
+
+/// A 64-block ext2-style volume (no extents flag) with one deleted file whose
+/// data is mapped by the twelve direct pointers and one single-indirect
+/// block. Data blocks sit on every other block from 12, the indirect block
+/// at `EXT_INDIRECT_BLOCK`, and the blocks it points at after it, so a
+/// truncation just before the indirect block cuts the map, not the data.
+/// `payload` must be longer than 12 KiB and at most 24 KiB.
+pub const EXT_INDIRECT_BLOCK: usize = 36;
+pub fn ext_indirect_volume(name: &str, payload: &[u8]) -> Vec<u8> {
+    const BLOCKS: usize = 64;
+    assert!(
+        (12 * EXT_BS + 1..=24 * EXT_BS).contains(&payload.len()),
+        "payload must need the indirect block"
+    );
+    let mut v = vec![0u8; BLOCKS * EXT_BS];
+    let sb = 1024;
+    v[sb..sb + 4].copy_from_slice(&32u32.to_le_bytes());
+    v[sb + 4..sb + 8].copy_from_slice(&(BLOCKS as u32).to_le_bytes());
+    v[sb + 0x14..sb + 0x18].copy_from_slice(&1u32.to_le_bytes());
+    v[sb + 0x20..sb + 0x24].copy_from_slice(&8192u32.to_le_bytes());
+    v[sb + 0x28..sb + 0x2C].copy_from_slice(&32u32.to_le_bytes());
+    v[sb + 0x38..sb + 0x3A].copy_from_slice(&0xEF53u16.to_le_bytes());
+    v[sb + 0x58..sb + 0x5A].copy_from_slice(&(EXT_ISIZE as u16).to_le_bytes());
+    v[sb + 0x60..sb + 0x64].copy_from_slice(&0x0002u32.to_le_bytes());
+    v[2 * EXT_BS + 8..2 * EXT_BS + 12].copy_from_slice(&(EXT_ITAB as u32).to_le_bytes());
+
+    ext_inode(&mut v, 2, 0x41ED, 3, 0, EXT_BS as u32, EXT_ROOT_DIR as u32);
+    ext_dirent(&mut v, EXT_ROOT_DIR, 0, 2, 12, ".", 2);
+    ext_dirent(&mut v, EXT_ROOT_DIR, 12, 2, (EXT_BS - 12) as u16, "..", 2);
+    ext_dirent(&mut v, EXT_ROOT_DIR, 28, 11, 24, name, 1);
+
+    // Inode 11: deleted, no extents flag, classic block map.
+    let o = EXT_ITAB * EXT_BS + 10 * EXT_ISIZE;
+    v[o..o + 2].copy_from_slice(&0x81A4u16.to_le_bytes());
+    v[o + 4..o + 8].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+    v[o + 0x14..o + 0x18].copy_from_slice(&12345u32.to_le_bytes());
+    v[o + 0x1A..o + 0x1C].copy_from_slice(&0u16.to_le_bytes());
+    let ib = o + 0x28;
+    let n_blocks = payload.len().div_ceil(EXT_BS);
+    let data_block = |i: usize| -> usize {
+        if i < 12 {
+            12 + 2 * i
+        } else {
+            EXT_INDIRECT_BLOCK + 2 + 2 * (i - 12)
+        }
+    };
+    for i in 0..12.min(n_blocks) {
+        v[ib + 4 * i..ib + 4 * i + 4].copy_from_slice(&(data_block(i) as u32).to_le_bytes());
+    }
+    v[ib + 48..ib + 52].copy_from_slice(&(EXT_INDIRECT_BLOCK as u32).to_le_bytes());
+    let ind = EXT_INDIRECT_BLOCK * EXT_BS;
+    for i in 12..n_blocks {
+        let k = i - 12;
+        v[ind + 4 * k..ind + 4 * k + 4].copy_from_slice(&(data_block(i) as u32).to_le_bytes());
+    }
+    for (i, chunk) in payload.chunks(EXT_BS).enumerate() {
+        let b = data_block(i) * EXT_BS;
+        assert!(b + chunk.len() <= v.len());
+        v[b..b + chunk.len()].copy_from_slice(chunk);
+    }
+    v
+}
+
+// --- FAT12 / FAT16 ---------------------------------------------------------
+
+/// A bare FAT12 volume: 100 data clusters of 512 bytes (well under 4085),
+/// one FAT sector, a 16-entry root directory region, and one deleted 8.3
+/// file at cluster 3 holding `payload`. FAT entries are 12-bit packed.
+pub fn fat12_volume(name8: &[u8; 8], ext3: &[u8; 3], payload: &[u8]) -> Vec<u8> {
+    fat_small_volume(name8, ext3, payload, 100, 1, 12)
+}
+
+/// A bare FAT16 volume: 8192 data clusters of 512 bytes (between 4085 and
+/// 65525), 32 FAT sectors, a 16-entry root directory region, and one
+/// deleted 8.3 file at cluster 3 holding `payload`.
+pub fn fat16_volume(name8: &[u8; 8], ext3: &[u8; 3], payload: &[u8]) -> Vec<u8> {
+    fat_small_volume(name8, ext3, payload, 8192, 32, 16)
+}
+
+fn fat_small_volume(
+    name8: &[u8; 8],
+    ext3: &[u8; 3],
+    payload: &[u8],
+    data_clusters: usize,
+    fat_sectors: usize,
+    bits: u32,
+) -> Vec<u8> {
+    const BPS: usize = 512;
+    const RESERVED: usize = 1;
+    const ROOT_ENTRIES: usize = 16; // one sector
+    let root_sector = RESERVED + fat_sectors;
+    let first_data = root_sector + 1;
+    let total = first_data + data_clusters;
+    let file_cluster = 3usize;
+    assert!(payload.len() <= (data_clusters - 2) * BPS);
+
+    let mut v = vec![0u8; total * BPS];
+    v[0] = 0xEB;
+    v[1] = 0x3C;
+    v[2] = 0x90;
+    v[11..13].copy_from_slice(&(BPS as u16).to_le_bytes());
+    v[13] = 1; // sectors per cluster
+    v[14..16].copy_from_slice(&(RESERVED as u16).to_le_bytes());
+    v[16] = 1; // one FAT
+    v[17..19].copy_from_slice(&(ROOT_ENTRIES as u16).to_le_bytes());
+    if total < 65536 {
+        v[19..21].copy_from_slice(&(total as u16).to_le_bytes());
+    } else {
+        v[32..36].copy_from_slice(&(total as u32).to_le_bytes());
+    }
+    v[22..24].copy_from_slice(&(fat_sectors as u16).to_le_bytes());
+    v[0x27..0x2B].copy_from_slice(&0x1234_5678u32.to_le_bytes()); // serial
+    v[510] = 0x55;
+    v[511] = 0xAA;
+
+    // FAT: media byte entries 0 and 1, root region is not in the FAT; the
+    // deleted file's chain is cleared, as a driver leaves it.
+    let fat = RESERVED * BPS;
+    let set = |v: &mut [u8], cluster: usize, value: u32| match bits {
+        12 => {
+            let i = cluster * 3 / 2;
+            let cur = u16::from_le_bytes([v[fat + i], v[fat + i + 1]]);
+            let new = if cluster & 1 == 0 {
+                (cur & 0xF000) | (value as u16 & 0x0FFF)
+            } else {
+                (cur & 0x000F) | ((value as u16 & 0x0FFF) << 4)
+            };
+            v[fat + i..fat + i + 2].copy_from_slice(&new.to_le_bytes());
+        }
+        _ => v[fat + cluster * 2..fat + cluster * 2 + 2]
+            .copy_from_slice(&(value as u16).to_le_bytes()),
+    };
+    set(&mut v, 0, 0xFF8);
+    set(&mut v, 1, 0xFFF);
+
+    let data = (first_data + (file_cluster - 2)) * BPS;
+    v[data..data + payload.len()].copy_from_slice(payload);
+
+    let e = root_sector * BPS;
+    v[e..e + 8].copy_from_slice(name8);
+    v[e + 8..e + 11].copy_from_slice(ext3);
+    v[e] = 0xE5;
+    v[e + 11] = 0x20;
+    v[e + 26..e + 28].copy_from_slice(&(file_cluster as u16).to_le_bytes());
+    v[e + 28..e + 32].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+    v
+}
+
+/// A bare HFS+ volume of 40 blocks whose deleted file has one inline extent
+/// (block 14, one block) and whose remaining extents live in the
+/// extents-overflow B-tree as `records`: each is `(startBlock key, extents)`
+/// and is written into the leaf in the order given. Every block from 14 up
+/// is filled with its own index, so the bytes a recovery produces name the
+/// blocks it read. `logical_size` is the file's recorded size.
+pub const HFS_OVERFLOW_TOTAL_BLOCKS: usize = 40;
+pub fn hfsplus_overflow_volume(
+    name: &str,
+    logical_size: u64,
+    records: &[(u32, Vec<(u32, u32)>)],
+) -> Vec<u8> {
+    let name16: Vec<u16> = name.encode_utf16().collect();
+    let name_len = name16.len();
+    const CATALOG_BLOCK: usize = 8;
+    const OVERFLOW_BLOCK: usize = 10;
+    const INLINE_BLOCK: usize = 14;
+    let total_blocks = HFS_OVERFLOW_TOTAL_BLOCKS;
+    let mut v = vec![0u8; total_blocks * HFS_BS];
+    for b in INLINE_BLOCK..total_blocks {
+        v[b * HFS_BS..(b + 1) * HFS_BS].fill(b as u8);
+    }
+
+    let vh = 1024;
+    put_be16(&mut v, vh, 0x482B);
+    put_be16(&mut v, vh + 2, 4);
+    put_be32(&mut v, vh + 40, HFS_BS as u32);
+    put_be32(&mut v, vh + 44, total_blocks as u32);
+    put_be64(&mut v, vh + 272, (2 * HFS_NODE_SIZE) as u64);
+    put_be32(&mut v, vh + 284, 2);
+    put_be32(&mut v, vh + 288, CATALOG_BLOCK as u32);
+    put_be32(&mut v, vh + 292, 2);
+    put_be64(&mut v, vh + 192, (2 * HFS_NODE_SIZE) as u64);
+    put_be32(&mut v, vh + 204, 2);
+    put_be32(&mut v, vh + 208, OVERFLOW_BLOCK as u32);
+    put_be32(&mut v, vh + 212, 2);
+
+    let cn0 = CATALOG_BLOCK * HFS_BS;
+    v[cn0 + 8] = 1;
+    put_be16(&mut v, cn0 + 32, HFS_NODE_SIZE as u16);
+    let cn1 = cn0 + HFS_NODE_SIZE;
+    v[cn1 + 8] = 0xFF;
+    put_be16(&mut v, cn1 + 10, 0);
+    put_be16(&mut v, cn1 + HFS_NODE_SIZE - 2, 14);
+    let key = cn1 + 14;
+    let key_len = 6 + 2 * name_len;
+    put_be16(&mut v, key, key_len as u16);
+    put_be32(&mut v, key + 2, 2);
+    put_be16(&mut v, key + 6, name_len as u16);
+    for (i, &u) in name16.iter().enumerate() {
+        put_be16(&mut v, key + 8 + i * 2, u);
+    }
+    let rec = key + 2 + key_len;
+    put_be16(&mut v, rec, 0x0002);
+    put_be32(&mut v, rec + 8, 16);
+    put_be32(&mut v, rec + 16, 2_082_844_800 + 1_000_000);
+    put_be64(&mut v, rec + 88, logical_size);
+    put_be32(&mut v, rec + 104, INLINE_BLOCK as u32);
+    put_be32(&mut v, rec + 108, 1);
+
+    let on0 = OVERFLOW_BLOCK * HFS_BS;
+    v[on0 + 8] = 1;
+    put_be16(&mut v, on0 + 32, HFS_NODE_SIZE as u16);
+    let on1 = on0 + HFS_NODE_SIZE;
+    v[on1 + 8] = 0xFF;
+    put_be16(&mut v, on1 + 10, records.len() as u16);
+    let mut off = 14usize;
+    for (i, (start_block, extents)) in records.iter().enumerate() {
+        assert!(extents.len() <= 8);
+        put_be16(&mut v, on1 + HFS_NODE_SIZE - 2 * (i + 1), off as u16);
+        let er = on1 + off;
+        put_be16(&mut v, er, 10);
+        v[er + 2] = 0; // data fork
+        put_be32(&mut v, er + 4, 16); // fileID
+        put_be32(&mut v, er + 8, *start_block);
+        for (k, &(start, count)) in extents.iter().enumerate() {
+            put_be32(&mut v, er + 12 + k * 8, start);
+            put_be32(&mut v, er + 16 + k * 8, count);
+        }
+        off += 12 + 64;
+    }
+    assert!(off + 2 * (records.len() + 1) <= HFS_NODE_SIZE);
+    v
+}

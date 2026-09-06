@@ -7008,9 +7008,13 @@ fn mp4_length(source: &Source, file_start: u64, limit: u64) -> Result<Option<u64
         let size32 = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
         let box_type = &hdr[4..8];
 
-        // Box types are four printable ASCII characters; anything else means
-        // we have walked off the end of the media into unrelated data.
-        if !box_type.iter().all(|&b| b.is_ascii_graphic() || b == b' ') {
+        // A top-level box is one of a known set; anything else means we have
+        // walked off the end of the media into unrelated data. Requiring
+        // printable ASCII alone was not enough: text following a file on
+        // disk reads as a box with a huge size, and the walk then claimed
+        // everything up to the cap (found by carving a real ffmpeg MP4 out
+        // of text-like filler).
+        if !is_top_level_box(box_type) {
             break;
         }
         if box_type == b"ftyp" {
@@ -7049,6 +7053,28 @@ fn mp4_length(source: &Source, file_start: u64, limit: u64) -> Result<Option<u64
     }
 }
 
+/// Whether `t` is a box type that appears at the top level of an ISO base
+/// media file or one of its relatives: MP4/M4A/M4V/3GP (ISO 14496-12), MOV
+/// (QuickTime atoms), HEIF/AVIF, Canon CR3, JPEG 2000 (JP2), and JPEG XL.
+/// Boxes nested inside `moov` or `meta` never reach the walk, so this is the
+/// outer vocabulary only.
+fn is_top_level_box(t: &[u8]) -> bool {
+    matches!(
+        t,
+        // ISO BMFF and fragmented MP4.
+        b"ftyp" | b"styp" | b"moov" | b"moof" | b"mfra" | b"mdat" | b"free" | b"skip"
+            | b"meta" | b"sidx" | b"ssix" | b"prft" | b"pdin" | b"emsg" | b"uuid" | b"idat"
+            // QuickTime.
+            | b"wide" | b"pnot" | b"junk" | b"PICT" | b"pict" | b"ctab"
+            // JPEG 2000 (JP2 family).
+            | b"jP  " | b"jp2h" | b"jp2c" | b"jp2i" | b"jpch" | b"jplh" | b"res " | b"rreq"
+            | b"ftbl" | b"xml " | b"asoc" | b"uinf" | b"dtbl" | b"mhdr" | b"cref"
+            // JPEG XL container.
+            | b"JXL " | b"jxlc" | b"jxlp" | b"jxll" | b"jxli" | b"jumb" | b"Exif" | b"brob"
+            | b"jbrd"
+    )
+}
+
 /// Read the candidate's header and ask the type's validator whether it looks
 /// like a real file. A short read (file smaller than the header window) just
 /// means the validator sees fewer bytes and tends to abstain.
@@ -7075,8 +7101,22 @@ fn confidence_of(
     validity: validate::Validity,
 ) -> Confidence {
     let cap = (file_start.saturating_add(sig.max_size)).min(scan_end) - file_start;
-    let fixed = matches!(sig.extent, Extent::Fixed { .. });
-    if len >= cap && !fixed {
+    // These extents only ever return a length once the format's own end was
+    // seen: a footer found, a size field read, a fixed size. A file that
+    // happens to end exactly at the cap or the source end is still whole.
+    // The structure walks (boxes, tags, chunks) can instead run into the cap
+    // and stop there, which is the guess the grade names.
+    let end_was_marked = matches!(
+        sig.extent,
+        Extent::Fixed { .. }
+            | Extent::Footer { .. }
+            | Extent::Jpeg
+            | Extent::HeaderSizeLe32 { .. }
+            | Extent::HeaderSizeBe32 { .. }
+            | Extent::SizeField { .. }
+            | Extent::RiffSize
+    );
+    if len >= cap && !end_was_marked {
         Confidence::Truncated
     } else if validity == validate::Validity::Valid {
         Confidence::Verified
@@ -7253,6 +7293,27 @@ impl ProgressSink for NoProgress {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Text following an MP4 on disk must not be read as more boxes: its
+    /// four printable bytes are not a box type, so the walk ends at `mdat`.
+    #[test]
+    fn mp4_walk_stops_at_text_that_is_not_a_box() {
+        let mut v = Vec::new();
+        v.extend_from_slice(&16u32.to_be_bytes());
+        v.extend_from_slice(b"ftypisom");
+        v.extend_from_slice(&0u32.to_be_bytes());
+        v.extend_from_slice(&(8 + 100u32).to_be_bytes());
+        v.extend_from_slice(b"mdat");
+        v.extend_from_slice(&[0x5A; 100]);
+        let file_len = v.len() as u64;
+        v.extend_from_slice(b"jklmnopqrstuvwxyz, a log line that happens to follow the file");
+        v.resize(4096, 0);
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("m.img");
+        std::fs::write(&p, &v).unwrap();
+        let src = Source::open(&p).unwrap();
+        assert_eq!(mp4_length(&src, 0, src.size).unwrap(), Some(file_len));
+    }
 
     #[test]
     fn finds_subsequence() {

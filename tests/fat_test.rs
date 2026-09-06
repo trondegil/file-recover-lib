@@ -299,3 +299,102 @@ fn jpeg_structure_steps_over_a_free_decoy_cluster() {
     assert_eq!(stats.recovered, 1);
     assert_eq!(std::fs::read(out.join("_HOTO.JPG")).unwrap(), jpeg);
 }
+
+// --- FAT12 and FAT16 through the shared builders ----------------------------
+
+fn undelete_small_fat(image: &[u8], expect_label: &str) -> (tempfile::TempDir, Vec<u8>) {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("fat.img");
+    std::fs::write(&p, image).unwrap();
+    let src = Source::open(&p).unwrap();
+    let vols = unearth::recover::detect(&src).unwrap();
+    assert_eq!(vols.len(), 1);
+    assert_eq!(vols[0].fs_label(), expect_label);
+    let out = tmp.path().join("out");
+    let stats = vols[0]
+        .recover_deleted(&src, &out, &unearth::recover::RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    let got = std::fs::read(out.join("_HOTO.DAT")).unwrap();
+    (tmp, got)
+}
+
+#[test]
+fn fat12_volume_is_classified_and_recovered_byte_for_byte() {
+    let payload: Vec<u8> = (0..3000u32).map(|i| (i % 253) as u8).collect();
+    let (_t, got) = undelete_small_fat(
+        &common::fat12_volume(b"PHOTO   ", b"DAT", &payload),
+        "Fat12",
+    );
+    assert_eq!(got, payload);
+}
+
+#[test]
+fn fat16_volume_is_classified_and_recovered_byte_for_byte() {
+    let payload: Vec<u8> = (0..3000u32).map(|i| (i % 249) as u8).collect();
+    let (_t, got) = undelete_small_fat(
+        &common::fat16_volume(b"PHOTO   ", b"DAT", &payload),
+        "Fat16",
+    );
+    assert_eq!(got, payload);
+}
+
+/// A deleted file whose chain is gone and whose next cluster is ambiguous:
+/// two free clusters follow its first one, each with different content, and
+/// nothing about the file (it is not a JPEG) says which is right. Today the
+/// walk takes the first free cluster. This pins that choice; the report
+/// still calls the result `named`, the same word an intact chain gets.
+#[test]
+fn an_ambiguous_continuation_takes_the_first_free_cluster_today() {
+    let mut img = vec![0u8; TOTAL_SECTORS * BPS];
+    write_bpb(&mut img);
+    // The file: 2 clusters from cluster 3; clusters 4 and 5 are both free.
+    let first: Vec<u8> = vec![0xA1; BPS];
+    let cand_a: Vec<u8> = vec![0xB2; BPS];
+    let cand_b: Vec<u8> = vec![0xC3; BPS];
+    for (cluster, bytes) in [(3usize, &first), (4, &cand_a), (5, &cand_b)] {
+        let off = cluster_sector(cluster) * BPS;
+        img[off..off + BPS].copy_from_slice(bytes);
+    }
+    let root_off = ROOT_DIR_SECTOR * BPS;
+    let short = deleted_short_entry(b"DATA    ", b"BIN", 3, (2 * BPS) as u32);
+    img[root_off..root_off + 32].copy_from_slice(&short);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path = tmp.path().join("fat12.img");
+    std::fs::write(&img_path, &img).unwrap();
+    let out_dir = tmp.path().join("out");
+    let report = tmp.path().join("report.csv");
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_unearth"))
+        .args([
+            "recover",
+            img_path.to_str().unwrap(),
+            "-o",
+            out_dir.to_str().unwrap(),
+            "--report",
+            report.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+
+    let got = std::fs::read(out_dir.join("named").join("_ATA.BIN")).unwrap();
+    assert_eq!(
+        got,
+        [first, cand_a].concat(),
+        "the first free cluster is taken"
+    );
+    let csv = std::fs::read_to_string(&report).unwrap();
+    let row = csv
+        .lines()
+        .find(|l| l.contains("_ATA.BIN"))
+        .expect("a report row for the file");
+    assert!(
+        row.trim_end().ends_with(",named"),
+        "a reassembled guess is still reported as `named`: {row}"
+    );
+}
