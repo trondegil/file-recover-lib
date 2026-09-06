@@ -448,16 +448,21 @@ fn read_checkpoint(path: &std::path::Path) -> Option<LoadedCheckpoint> {
                 }
             }
             Some("file") => {
-                if let (Some(ext), Some(offset), Some(size), Some(sha), Some(name)) = (
+                // The line is `file ext offset size sha name confidence`;
+                // `it` was split into six pieces, so the last one holds the
+                // name and the grade together (a name never has a space, but
+                // splitting from the right keeps it right if one ever does).
+                if let (Some(ext), Some(offset), Some(size), Some(sha), Some(rest)) = (
                     it.next().and_then(intern_ext),
                     it.next().and_then(|v| v.parse::<u64>().ok()),
                     it.next().and_then(|v| v.parse::<u64>().ok()),
                     it.next().and_then(parse_hex32),
                     it.next(),
                 ) {
-                    let confidence = match it.next() {
-                        Some("verified") => Confidence::Verified,
-                        Some("truncated") => Confidence::Truncated,
+                    let (name, grade) = rest.rsplit_once(' ').unwrap_or((rest, ""));
+                    let confidence = match grade {
+                        "verified" => Confidence::Verified,
+                        "truncated" => Confidence::Truncated,
                         _ => Confidence::Plausible,
                     };
                     *stats.per_type.entry(ext.to_string()).or_insert(0) += 1;
@@ -7008,9 +7013,13 @@ fn mp4_length(source: &Source, file_start: u64, limit: u64) -> Result<Option<u64
         let size32 = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as u64;
         let box_type = &hdr[4..8];
 
-        // Box types are four printable ASCII characters; anything else means
-        // we have walked off the end of the media into unrelated data.
-        if !box_type.iter().all(|&b| b.is_ascii_graphic() || b == b' ') {
+        // A top-level box is one of a known set; anything else means we have
+        // walked off the end of the media into unrelated data. Requiring
+        // printable ASCII alone was not enough: text following a file on
+        // disk reads as a box with a huge size, and the walk then claimed
+        // everything up to the cap (found by carving a real ffmpeg MP4 out
+        // of text-like filler).
+        if !is_top_level_box(box_type) {
             break;
         }
         if box_type == b"ftyp" {
@@ -7049,6 +7058,28 @@ fn mp4_length(source: &Source, file_start: u64, limit: u64) -> Result<Option<u64
     }
 }
 
+/// Whether `t` is a box type that appears at the top level of an ISO base
+/// media file or one of its relatives: MP4/M4A/M4V/3GP (ISO 14496-12), MOV
+/// (QuickTime atoms), HEIF/AVIF, Canon CR3, JPEG 2000 (JP2), and JPEG XL.
+/// Boxes nested inside `moov` or `meta` never reach the walk, so this is the
+/// outer vocabulary only.
+fn is_top_level_box(t: &[u8]) -> bool {
+    matches!(
+        t,
+        // ISO BMFF and fragmented MP4.
+        b"ftyp" | b"styp" | b"moov" | b"moof" | b"mfra" | b"mdat" | b"free" | b"skip"
+            | b"meta" | b"sidx" | b"ssix" | b"prft" | b"pdin" | b"emsg" | b"uuid" | b"idat"
+            // QuickTime.
+            | b"wide" | b"pnot" | b"junk" | b"PICT" | b"pict" | b"ctab"
+            // JPEG 2000 (JP2 family).
+            | b"jP  " | b"jp2h" | b"jp2c" | b"jp2i" | b"jpch" | b"jplh" | b"res " | b"rreq"
+            | b"ftbl" | b"xml " | b"asoc" | b"uinf" | b"dtbl" | b"mhdr" | b"cref"
+            // JPEG XL container.
+            | b"JXL " | b"jxlc" | b"jxlp" | b"jxll" | b"jxli" | b"jumb" | b"Exif" | b"brob"
+            | b"jbrd"
+    )
+}
+
 /// Read the candidate's header and ask the type's validator whether it looks
 /// like a real file. A short read (file smaller than the header window) just
 /// means the validator sees fewer bytes and tends to abstain.
@@ -7075,8 +7106,22 @@ fn confidence_of(
     validity: validate::Validity,
 ) -> Confidence {
     let cap = (file_start.saturating_add(sig.max_size)).min(scan_end) - file_start;
-    let fixed = matches!(sig.extent, Extent::Fixed { .. });
-    if len >= cap && !fixed {
+    // These extents only ever return a length once the format's own end was
+    // seen: a footer found, a size field read, a fixed size. A file that
+    // happens to end exactly at the cap or the source end is still whole.
+    // The structure walks (boxes, tags, chunks) can instead run into the cap
+    // and stop there, which is the guess the grade names.
+    let end_was_marked = matches!(
+        sig.extent,
+        Extent::Fixed { .. }
+            | Extent::Footer { .. }
+            | Extent::Jpeg
+            | Extent::HeaderSizeLe32 { .. }
+            | Extent::HeaderSizeBe32 { .. }
+            | Extent::SizeField { .. }
+            | Extent::RiffSize
+    );
+    if len >= cap && !end_was_marked {
         Confidence::Truncated
     } else if validity == validate::Validity::Valid {
         Confidence::Verified
@@ -7253,6 +7298,65 @@ impl ProgressSink for NoProgress {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A checkpoint's `file` lines round-trip name and grade exactly: a
+    /// resumed run's manifest must be the uninterrupted run's.
+    #[test]
+    fn checkpoint_file_lines_round_trip_name_and_grade() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("scan.checkpoint");
+        let mut stats = CarveStats::default();
+        for (i, (name, grade)) in [
+            ("00000000_0x0000000000000400.jpg", Confidence::Verified),
+            ("jpg/00000001_0x0000000000001000.jpg", Confidence::Truncated),
+            ("00000002_0x0000000000002000.wav", Confidence::Plausible),
+        ]
+        .iter()
+        .enumerate()
+        {
+            stats.files.push(CarvedFile {
+                name: name.to_string(),
+                ext: name.rsplit('.').next().unwrap().to_string(),
+                offset: 0x400 * (i as u64 + 1),
+                size: 100 + i as u64,
+                sha256: [i as u8; 32],
+                confidence: *grade,
+            });
+        }
+        stats.files_recovered = 3;
+        write_checkpoint(&path, 4096, 8192, 0, &stats, &HashSet::new(), false).unwrap();
+        let loaded = read_checkpoint(&path).unwrap();
+        assert_eq!(loaded.stats.files.len(), 3);
+        for (a, b) in loaded.stats.files.iter().zip(&stats.files) {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.ext, b.ext);
+            assert_eq!(a.offset, b.offset);
+            assert_eq!(a.size, b.size);
+            assert_eq!(a.sha256, b.sha256);
+            assert_eq!(a.confidence, b.confidence);
+        }
+    }
+
+    /// Text following an MP4 on disk must not be read as more boxes: its
+    /// four printable bytes are not a box type, so the walk ends at `mdat`.
+    #[test]
+    fn mp4_walk_stops_at_text_that_is_not_a_box() {
+        let mut v = Vec::new();
+        v.extend_from_slice(&16u32.to_be_bytes());
+        v.extend_from_slice(b"ftypisom");
+        v.extend_from_slice(&0u32.to_be_bytes());
+        v.extend_from_slice(&(8 + 100u32).to_be_bytes());
+        v.extend_from_slice(b"mdat");
+        v.extend_from_slice(&[0x5A; 100]);
+        let file_len = v.len() as u64;
+        v.extend_from_slice(b"jklmnopqrstuvwxyz, a log line that happens to follow the file");
+        v.resize(4096, 0);
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("m.img");
+        std::fs::write(&p, &v).unwrap();
+        let src = Source::open(&p).unwrap();
+        assert_eq!(mp4_length(&src, 0, src.size).unwrap(), Some(file_len));
+    }
 
     #[test]
     fn finds_subsequence() {

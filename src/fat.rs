@@ -435,8 +435,10 @@ impl Volume {
                 continue;
             }
             match self.write_file(src, out_dir, &df, fat.as_deref()) {
-                Ok((_, digest)) => {
-                    stats.record_recovered(df.path.clone(), df.size as u64, Some(digest))
+                Ok((written, digest)) => {
+                    // The report carries the bytes written: the entry's size
+                    // unless the walk ran out of clusters.
+                    stats.record_recovered(df.path.clone(), written, Some(digest))
                 }
                 Err(_) => stats.record_skipped(df.path.clone(), df.size as u64),
             }

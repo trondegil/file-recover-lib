@@ -130,22 +130,27 @@ pub fn image<S: BlockSource>(
     let start = opts.start.min(end);
     let total = end - start;
 
-    // Resume from a prior map, if asked and one exists. A corrupt or stale map
-    // is treated as "start over" (always safe — at worst it re-copies).
+    // Resume from a prior map, if asked and one exists. A map that does not
+    // parse as one of ours is treated as "start over" (always safe — at worst
+    // it re-copies); a map that parses but describes a different copy is
+    // refused (see `validate_map`), before the image is opened.
     let resume_path = if opts.resume {
         opts.map.as_ref().filter(|p| p.exists())
     } else {
         None
     };
-    let resuming = resume_path.is_some();
+    let mut resuming = false;
     let mut bad: Vec<(u64, u64)> = Vec::new();
     let mut resume_from = start;
     if let Some(path) = resume_path {
         let text = fs::read_to_string(path)
             .with_context(|| format!("reading image map {}", path.display()))?;
         let saved = parse_map(&text);
-        resume_from = saved.pos.clamp(start, end);
-        bad = saved.bad; // carry forward earlier unreadable regions
+        if validate_map(&saved, start, end, &opts.output)? {
+            resuming = true;
+            resume_from = saved.pos;
+            bad = saved.bad; // carry forward earlier unreadable regions
+        }
     }
 
     if let Some(parent) = opts.output.parent() {
@@ -318,15 +323,64 @@ fn retry_bad_regions<S: BlockSource>(
     Ok(())
 }
 
-/// Parsed contents of a map file: the high-water mark and unreadable regions.
+/// Parsed contents of a map file: the recorded end of the copied range (when
+/// the map carries one), the high-water mark, and unreadable regions.
 struct ImageMap {
+    total: Option<u64>,
     pos: u64,
     bad: Vec<(u64, u64)>,
+}
+
+/// Check a map against the run about to resume from it. A map that names a
+/// different range, a position outside it, unreadable regions outside it or
+/// overlapping each other, or a destination that lacks the prefix the map
+/// says was copied, is a map for some other copy: resuming from it would
+/// keep a wrong prefix or skip bytes, so it is refused before anything is
+/// opened for writing. A map with no `total` line did not come from this
+/// tool's writer and is treated as absent (a full copy starts over).
+fn validate_map(map: &ImageMap, start: u64, end: u64, output: &std::path::Path) -> Result<bool> {
+    let Some(total) = map.total else {
+        return Ok(false);
+    };
+    if total != end {
+        anyhow::bail!(
+            "image map is for a different range (it ends at {total}, this copy ends at {end})"
+        );
+    }
+    if map.pos < start || map.pos > end {
+        anyhow::bail!(
+            "image map position {} is outside this copy's range {start}..{end}",
+            map.pos
+        );
+    }
+    let mut last_end = 0u64;
+    for &(off, len) in &map.bad {
+        let region_end = off.saturating_add(len);
+        if off < start || region_end > end {
+            anyhow::bail!(
+                "image map names an unreadable region {off}+{len} outside {start}..{end}"
+            );
+        }
+        if off < last_end {
+            anyhow::bail!("image map has overlapping unreadable regions at {off}");
+        }
+        last_end = region_end;
+    }
+    let have = fs::metadata(output).map(|m| m.len()).unwrap_or(0);
+    if have < map.pos.saturating_sub(start) {
+        anyhow::bail!(
+            "image {} holds {have} bytes but the map says {} were copied; it is not the image this map describes",
+            output.display(),
+            map.pos.saturating_sub(start)
+        );
+    }
+    Ok(true)
 }
 
 /// Parse a map file leniently: unknown or malformed lines are ignored so a
 /// partially-written map (e.g. after a crash) is still usable.
 fn parse_map(text: &str) -> ImageMap {
+    let mut total = None;
     let mut pos = 0u64;
     let mut bad = Vec::new();
     for line in text.lines() {
@@ -336,6 +390,9 @@ fn parse_map(text: &str) -> ImageMap {
         }
         let mut it = line.split_whitespace();
         match it.next() {
+            Some("total") => {
+                total = it.next().and_then(|s| s.parse().ok());
+            }
             Some("pos") => {
                 if let Some(v) = it.next().and_then(|s| s.parse().ok()) {
                     pos = v;
@@ -352,7 +409,7 @@ fn parse_map(text: &str) -> ImageMap {
             _ => {}
         }
     }
-    ImageMap { pos, bad }
+    ImageMap { total, pos, bad }
 }
 
 /// Write the map file: a human-readable record of total size, the high-water
@@ -737,5 +794,332 @@ mod tests {
         assert_eq!(stats.bytes_recovered_retry, 0);
         assert_eq!(stats.bad_regions.len(), 1);
         assert_eq!(stats.bytes_zeroed, 512);
+    }
+
+    /// A source that never fails but answers every read with at most 1000
+    /// bytes, fewer than asked and not sector-aligned: a device or pipe that
+    /// returns short reads without error.
+    struct ShortSource {
+        data: Vec<u8>,
+    }
+
+    impl BlockSource for ShortSource {
+        fn size(&self) -> u64 {
+            self.data.len() as u64
+        }
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+            let start = offset as usize;
+            let n = buf
+                .len()
+                .min(1000)
+                .min(self.data.len().saturating_sub(start));
+            buf[..n].copy_from_slice(&self.data[start..start + n]);
+            Ok(n)
+        }
+    }
+
+    fn pattern(len: usize) -> Vec<u8> {
+        (0..len as u32).map(|i| (i % 251) as u8 | 1).collect()
+    }
+
+    /// Interrupt a copy after its first chunk, then resume against a source
+    /// that now fails in the part not yet copied: the map records exactly that
+    /// range, the copied prefix is left as it was, and the rest is exact.
+    #[test]
+    fn resume_records_a_fault_in_the_uncopied_part_and_leaves_the_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("out.img");
+        let map = tmp.path().join("out.map");
+        let data = pattern(9_000_000);
+
+        let good = FaultySource {
+            data: data.clone(),
+            bad: 0..0,
+        };
+        let opts = ImageOptions {
+            output: out.clone(),
+            sparse: false,
+            map: Some(map.clone()),
+            ..Default::default()
+        };
+        let first = image(
+            &good,
+            &opts,
+            &CancelAfterFirstChunk {
+                updates: std::sync::atomic::AtomicU64::new(0),
+            },
+        )
+        .unwrap();
+        assert!(first.cancelled);
+        let resume_from = parse_map(&std::fs::read_to_string(&map).unwrap()).pos;
+        assert_eq!(resume_from, IMAGE_CHUNK as u64, "one chunk copied");
+        // Mark the copied prefix so a rewrite would show.
+        {
+            let mut f = OpenOptions::new().write(true).open(&out).unwrap();
+            f.seek(SeekFrom::Start(100)).unwrap();
+            f.write_all(&[0xEE; 8]).unwrap();
+        }
+
+        // The uncopied part now has one unreadable sector.
+        let bad_at = 6_000_128u64; // sector-aligned from the resume point
+        assert_eq!((bad_at - resume_from) % 512, 0);
+        let faulty = FaultySource {
+            data: data.clone(),
+            bad: bad_at..bad_at + 512,
+        };
+        let stats = image(
+            &faulty,
+            &ImageOptions {
+                resume: true,
+                ..ImageOptions {
+                    output: out.clone(),
+                    sparse: false,
+                    map: Some(map.clone()),
+                    ..Default::default()
+                }
+            },
+            &NoProgress,
+        )
+        .unwrap();
+        assert!(!stats.cancelled);
+        assert_eq!(stats.bad_regions.len(), 1);
+        assert_eq!(
+            (stats.bad_regions[0].offset, stats.bad_regions[0].len),
+            (bad_at, 512)
+        );
+        assert_eq!(stats.bytes_zeroed, 512);
+
+        let got = read_back(&out);
+        assert_eq!(got.len(), data.len());
+        assert_eq!(
+            &got[100..108],
+            &[0xEE; 8],
+            "the copied prefix was not rewritten"
+        );
+        assert_eq!(&got[..100], &data[..100]);
+        assert_eq!(
+            &got[108..resume_from as usize],
+            &data[108..resume_from as usize]
+        );
+        assert_eq!(
+            &got[resume_from as usize..bad_at as usize],
+            &data[resume_from as usize..bad_at as usize]
+        );
+        assert!(got[bad_at as usize..bad_at as usize + 512]
+            .iter()
+            .all(|&b| b == 0));
+        assert_eq!(
+            &got[bad_at as usize + 512..],
+            &data[bad_at as usize + 512..]
+        );
+        let map_text = std::fs::read_to_string(&map).unwrap();
+        assert!(
+            map_text.contains(&format!("bad {bad_at} 512")),
+            "{map_text}"
+        );
+        assert!(
+            map_text.contains(&format!("pos {}", data.len())),
+            "{map_text}"
+        );
+    }
+
+    /// A read failure inside a run of zeros is a bad sector, not a hole to
+    /// skip: the sparse path never gets to look at bytes that could not be
+    /// read, and the map records the fault.
+    #[test]
+    fn a_fault_inside_a_zero_run_is_recorded_by_the_sparse_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("out.img");
+        let map = tmp.path().join("out.map");
+        let mut data = vec![0u8; 8 * 1024 * 1024];
+        data[..4096].copy_from_slice(&pattern(4096));
+        let tail = data.len() - 4096;
+        data[tail..].copy_from_slice(&pattern(4096));
+        let bad_at = 3_000_320u64; // sector-aligned, so exactly one sector fails
+        let src = FaultySource {
+            data: data.clone(),
+            bad: bad_at..bad_at + 512,
+        };
+        let opts = ImageOptions {
+            output: out.clone(),
+            sparse: true,
+            map: Some(map.clone()),
+            ..Default::default()
+        };
+        let stats = image(&src, &opts, &NoProgress).unwrap();
+        assert_eq!(stats.bad_regions.len(), 1);
+        assert_eq!(
+            (stats.bad_regions[0].offset, stats.bad_regions[0].len),
+            (bad_at, 512)
+        );
+        assert_eq!(stats.bytes_zeroed, 512);
+        assert!(
+            stats.bytes_sparse > 0,
+            "the zero run was still skipped as sparse"
+        );
+        assert_eq!(read_back(&out), data);
+        let map_text = std::fs::read_to_string(&map).unwrap();
+        assert!(
+            map_text.contains(&format!("bad {bad_at} 512")),
+            "{map_text}"
+        );
+    }
+
+    /// A map that disagrees with the run it is asked to resume is refused
+    /// before the image is touched: a stale or foreign map must not keep a
+    /// wrong prefix or skip bytes.
+    #[test]
+    fn a_map_that_does_not_match_the_run_is_rejected_before_any_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("out.img");
+        let map = tmp.path().join("out.map");
+        let data = pattern(3_000_000);
+        let src = FaultySource {
+            data: data.clone(),
+            bad: 0..0,
+        };
+        let total = data.len() as u64;
+        // A full-length destination of other content, so that only the map
+        // check under test can reject each case, and any write would show.
+        let existing = vec![0xEEu8; data.len()];
+        let cases: Vec<(&str, String, u64)> = vec![
+            (
+                "recorded source size differs",
+                format!("# unearth image map v1\ntotal {}\npos 1000000\n", total - 1),
+                0,
+            ),
+            (
+                "position past the end",
+                format!("total {total}\npos {}\n", total + 1),
+                0,
+            ),
+            (
+                "bad region past the end",
+                format!("total {total}\npos 1000000\nbad {} 1024\n", total - 512),
+                0,
+            ),
+            (
+                "bad regions overlap",
+                format!("total {total}\npos 1000000\nbad 1000 512\nbad 1200 512\n"),
+                0,
+            ),
+            (
+                "map for a different range",
+                format!("total {total}\npos 500\n"),
+                1000, // this run starts at 1000; the map's position is before it
+            ),
+        ];
+        for (what, text, start) in cases {
+            std::fs::write(&map, &text).unwrap();
+            std::fs::write(&out, &existing).unwrap();
+            let opts = ImageOptions {
+                output: out.clone(),
+                start,
+                sparse: false,
+                map: Some(map.clone()),
+                resume: true,
+                ..Default::default()
+            };
+            let err = image(&src, &opts, &NoProgress).err();
+            assert!(err.is_some(), "{what}: must be rejected");
+            assert_eq!(read_back(&out), existing, "{what}: the image was written");
+            assert_eq!(
+                std::fs::read_to_string(&map).unwrap(),
+                text,
+                "{what}: the map was written"
+            );
+        }
+
+        // A destination shorter than the map's position is missing the prefix
+        // the map claims was copied.
+        std::fs::write(&map, format!("total {total}\npos 2000000\n")).unwrap();
+        std::fs::write(&out, &data[..1000]).unwrap();
+        let opts = ImageOptions {
+            output: out.clone(),
+            sparse: false,
+            map: Some(map.clone()),
+            resume: true,
+            ..Default::default()
+        };
+        assert!(
+            image(&src, &opts, &NoProgress).is_err(),
+            "truncated destination"
+        );
+        assert_eq!(read_back(&out), &data[..1000]);
+
+        // A valid interrupted-then-resumed copy equals an uninterrupted one in
+        // bytes and in map.
+        let straight = tmp.path().join("straight.img");
+        let straight_map = tmp.path().join("straight.map");
+        image(
+            &src,
+            &ImageOptions {
+                output: straight.clone(),
+                sparse: false,
+                map: Some(straight_map.clone()),
+                ..Default::default()
+            },
+            &NoProgress,
+        )
+        .unwrap();
+        let _ = std::fs::remove_file(&out);
+        image(
+            &src,
+            &ImageOptions {
+                output: out.clone(),
+                sparse: false,
+                map: Some(map.clone()),
+                ..Default::default()
+            },
+            &CancelAfterFirstChunk {
+                updates: std::sync::atomic::AtomicU64::new(0),
+            },
+        )
+        .unwrap();
+        image(
+            &src,
+            &ImageOptions {
+                output: out.clone(),
+                sparse: false,
+                map: Some(map.clone()),
+                resume: true,
+                ..Default::default()
+            },
+            &NoProgress,
+        )
+        .unwrap();
+        assert_eq!(read_back(&out), read_back(&straight));
+        assert_eq!(
+            std::fs::read_to_string(&map).unwrap(),
+            std::fs::read_to_string(&straight_map).unwrap()
+        );
+    }
+
+    /// Short reads without an error keep the copy aligned: every byte lands
+    /// at its own offset and nothing stale from the read buffer is written.
+    #[test]
+    fn short_reads_keep_offsets_aligned_and_write_no_stale_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("out.img");
+        let map = tmp.path().join("out.map");
+        let data = pattern(70_003); // not a multiple of the 1000-byte reads
+        let src = ShortSource { data: data.clone() };
+        let stats = image(
+            &src,
+            &ImageOptions {
+                output: out.clone(),
+                sparse: false,
+                map: Some(map.clone()),
+                ..Default::default()
+            },
+            &NoProgress,
+        )
+        .unwrap();
+        assert_eq!(read_back(&out), data);
+        assert_eq!(stats.bytes_copied, data.len() as u64);
+        assert!(stats.bad_regions.is_empty());
+        assert!(std::fs::read_to_string(&map)
+            .unwrap()
+            .contains(&format!("pos {}", data.len())));
     }
 }

@@ -179,8 +179,6 @@ fn build_record(flags: u16, attrs: &[Vec<u8>]) -> Vec<u8> {
     rec[20..22].copy_from_slice(&56u16.to_le_bytes()); // first attribute offset
     rec[22..24].copy_from_slice(&flags.to_le_bytes());
     rec[28..32].copy_from_slice(&(RECORD as u32).to_le_bytes()); // allocated size
-                                                                 // USA values: check value + two zeroed sector tails.
-    rec[48..50].copy_from_slice(&1u16.to_le_bytes());
 
     let mut off = 56;
     for a in attrs {
@@ -189,8 +187,22 @@ fn build_record(flags: u16, attrs: &[Vec<u8>]) -> Vec<u8> {
     }
     rec[off..off + 4].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // end marker
     rec[28..32].copy_from_slice(&((off + 8) as u32).to_le_bytes()); // used size
+                                                                    // Update sequence array, as the driver writes it: the USN at USA[0], the
+                                                                    // bytes each sector tail really held at USA[1..], and the USN written
+                                                                    // over every sector tail so a torn write can be detected.
+    let usn = USN.to_le_bytes();
+    for sector in 1..=2 {
+        let tail = sector * BPS - 2;
+        let original = [rec[tail], rec[tail + 1]];
+        rec[48 + sector * 2..48 + sector * 2 + 2].copy_from_slice(&original);
+        rec[tail..tail + 2].copy_from_slice(&usn);
+    }
+    rec[48..50].copy_from_slice(&usn);
     rec
 }
+
+/// The update sequence number every fixture record carries.
+const USN: u16 = 0x0A0B;
 
 const FLAG_IN_USE: u16 = 0x01;
 const FLAG_DIR: u16 = 0x02;
@@ -408,4 +420,165 @@ fn recovers_nameless_records_by_content() {
         std::fs::read(out.join("_unnamed/mft-13.bin")).unwrap(),
         text
     );
+}
+
+/// Boot sector plus the `$MFT` record; `records` are `(index, record)` pairs
+/// dropped into the MFT.
+fn ntfs_image_with(records: &[(usize, Vec<u8>)]) -> Vec<u8> {
+    let mut img = vec![0u8; TOTAL_CLUSTERS * CLUSTER];
+    write_boot(&mut img);
+    let mft_runs = [0x11u8, MFT_RECORDS as u8 * 2, MFT_CLUSTER as u8, 0x00];
+    let rec0 = build_record(
+        FLAG_IN_USE,
+        &[data_nonresident((MFT_RECORDS * RECORD) as u64, &mft_runs)],
+    );
+    let o = mft_byte(0);
+    img[o..o + RECORD].copy_from_slice(&rec0);
+    for (index, rec) in records {
+        let o = mft_byte(*index);
+        img[o..o + RECORD].copy_from_slice(rec);
+    }
+    img
+}
+
+/// Fill every cluster from 40 up with its own index, so a recovered file
+/// shows exactly which clusters, in which order, it was read from.
+fn stamp_clusters(img: &mut [u8]) {
+    for c in 40..TOTAL_CLUSTERS {
+        img[cluster_byte(c)..cluster_byte(c + 1)].fill(c as u8);
+    }
+}
+
+fn recover(img: &[u8]) -> (tempfile::TempDir, unearth::recover::RecoverStats) {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("ntfs.img");
+    std::fs::write(&p, img).unwrap();
+    let src = Source::open(&p).unwrap();
+    let vol = ntfs::Volume::parse(&src, 0).unwrap();
+    let stats = vol
+        .recover_deleted(
+            &src,
+            &tmp.path().join("out"),
+            &unearth::recover::RecoverOptions::default(),
+        )
+        .unwrap();
+    (tmp, stats)
+}
+
+/// A run list that goes forward, then backward (a signed delta), then
+/// through a sparse hole, then forward again, ending mid-cluster: the bytes
+/// must come out in run order with the hole as zeros and nothing past
+/// `real_size`.
+#[test]
+fn signed_and_sparse_data_runs_are_reassembled_in_order() {
+    // 50..=52, then 40..=41 (delta -10, one signed byte 0xF6), then two
+    // sparse clusters (offset width 0), then 60 (delta +20 from 40).
+    let runs = [
+        0x11u8, 3, 50, // len 3 at LCN 50
+        0x11, 2, 0xF6, // len 2 at LCN 50 - 10 = 40
+        0x01, 2, // len 2, sparse
+        0x11, 1, 20, // len 1 at LCN 40 + 20 = 60
+        0x00,
+    ];
+    let real_size = 8 * CLUSTER as u64 - 100;
+    let rec = build_record(
+        0,
+        &[
+            filename_attr("runs.bin", 5, 1),
+            data_nonresident(real_size, &runs),
+        ],
+    );
+    let mut img = ntfs_image_with(&[(6, rec)]);
+    stamp_clusters(&mut img);
+
+    let mut expected = Vec::new();
+    for c in [50u8, 51, 52, 40, 41] {
+        expected.extend(std::iter::repeat(c).take(CLUSTER));
+    }
+    expected.extend(std::iter::repeat(0u8).take(2 * CLUSTER));
+    expected.extend(std::iter::repeat(60u8).take(CLUSTER - 100));
+    assert_eq!(expected.len() as u64, real_size);
+
+    let (tmp, stats) = recover(&img);
+    assert_eq!(stats.recovered, 1);
+    let got = std::fs::read(tmp.path().join("out").join("runs.bin")).unwrap();
+    assert_eq!(got.len() as u64, real_size);
+    assert_eq!(got, expected);
+    assert_eq!(stats.files[0].size, real_size);
+}
+
+/// A run that reaches past the end of the volume cannot be padded up to the
+/// claimed size: the file comes out short (or not at all) and the report
+/// row carries the length that was actually written.
+#[test]
+fn a_run_past_the_volume_end_is_not_padded_to_real_size() {
+    // Four clusters from LCN 62 on a 64-cluster volume: two exist, two do not.
+    let runs = [0x11u8, 4, 62, 0x00];
+    let real_size = 4 * CLUSTER as u64;
+    let rec = build_record(
+        0,
+        &[
+            filename_attr("over.bin", 5, 1),
+            data_nonresident(real_size, &runs),
+        ],
+    );
+    let mut img = ntfs_image_with(&[(6, rec)]);
+    stamp_clusters(&mut img);
+
+    let (tmp, stats) = recover(&img);
+    let out = tmp.path().join("out").join("over.bin");
+    let row = stats
+        .files
+        .iter()
+        .find(|f| f.path.ends_with("over.bin"))
+        .expect("a report row for the file");
+    if row.recovered {
+        let got = std::fs::read(&out).unwrap();
+        assert!(
+            (got.len() as u64) < real_size,
+            "must not be padded to the claimed size"
+        );
+        assert_eq!(got, [vec![62u8; CLUSTER], vec![63u8; CLUSTER]].concat());
+        assert_eq!(
+            row.size,
+            got.len() as u64,
+            "the report row says what was written"
+        );
+    } else {
+        assert!(!out.exists(), "a skipped file leaves nothing behind");
+    }
+}
+
+/// A record whose sector tails do not carry the update sequence number was
+/// torn mid-write: its attributes cannot be trusted and it is rejected.
+#[test]
+fn a_record_with_mismatched_fixups_is_rejected() {
+    let payload: Vec<u8> = (0..700u32).map(|i| (i % 251) as u8).collect();
+    let runs = [0x11u8, 2, 40, 0x00];
+    let rec = build_record(
+        0,
+        &[
+            filename_attr("torn.bin", 5, 1),
+            data_nonresident(payload.len() as u64, &runs),
+        ],
+    );
+    // First the intact record recovers, proving the fixture is otherwise sound.
+    let mut img = ntfs_image_with(&[(6, rec.clone())]);
+    let d = cluster_byte(40);
+    img[d..d + payload.len()].copy_from_slice(&payload);
+    let (tmp, stats) = recover(&img);
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(
+        std::fs::read(tmp.path().join("out").join("torn.bin")).unwrap(),
+        payload
+    );
+
+    // Now the second sector's tail holds a stale sequence number.
+    let mut torn = rec;
+    torn[2 * BPS - 2..2 * BPS].copy_from_slice(&0x9999u16.to_le_bytes());
+    let mut img = ntfs_image_with(&[(6, torn)]);
+    img[d..d + payload.len()].copy_from_slice(&payload);
+    let (tmp, stats) = recover(&img);
+    assert_eq!(stats.recovered, 0, "a torn record must not be parsed");
+    assert!(!tmp.path().join("out").join("torn.bin").exists());
 }

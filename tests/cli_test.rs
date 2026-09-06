@@ -1095,3 +1095,313 @@ fn an_alias_of_the_source_is_refused_as_a_destination() {
         }
     }
 }
+
+// --- Option interactions ------------------------------------------------------
+
+fn manifest_rows(path: &Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+/// `--resume` after a run stopped by `--max-files`, with `--dedup` and
+/// `--report`: the duplicate is dropped, and the manifest rows name exactly
+/// the files that exist.
+#[test]
+fn resume_with_dedup_and_report_completes_the_manifest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+    let checkpoint = tmp.path().join("scan.checkpoint");
+    let report = tmp.path().join("manifest.csv");
+
+    let a = common::jpeg(&vec![0x41u8; 1500]);
+    let b = common::jpeg(&vec![0x42u8; 1800]);
+    let mut data = vec![0u8; 1024];
+    for j in [&a, &a, &b] {
+        data.extend_from_slice(j);
+        data.extend_from_slice(&[0u8; 1024]);
+    }
+    std::fs::write(&img, &data).unwrap();
+
+    // First run stops after one file and leaves a checkpoint.
+    let first = run(&[
+        "scan",
+        img.to_str().unwrap(),
+        "-o",
+        out_dir.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--max-files",
+        "1",
+        "--dedup",
+        "-q",
+    ]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(std::fs::read_dir(&out_dir).unwrap().count(), 1);
+
+    let second = run(&[
+        "scan",
+        img.to_str().unwrap(),
+        "-o",
+        out_dir.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--resume",
+        "--dedup",
+        "--report",
+        report.to_str().unwrap(),
+        "-q",
+    ]);
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let mut files: Vec<Vec<u8>> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+        .collect();
+    files.sort();
+    let mut want = vec![a.clone(), b.clone()];
+    want.sort();
+    assert_eq!(
+        files, want,
+        "the duplicate of `a` was dropped across the resume"
+    );
+    let rows = manifest_rows(&report);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    for row in &rows {
+        let name = row.split(',').next().unwrap();
+        assert!(
+            out_dir.join(name).exists(),
+            "manifest names a missing file: {row}"
+        );
+    }
+}
+
+/// `--dry-run` with `--name` and `--modified-after` reports exactly what the
+/// same filters write in a real run.
+#[test]
+fn dry_run_with_name_and_time_filters_reports_what_a_real_run_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img = tmp.path().join("ext.img");
+    let mut vol = common::ext_volume_multi(&[
+        ("old.txt", b"too old"),
+        ("new.txt", b"new and matching"),
+        ("new.log", b"new but not matching"),
+    ]);
+    // Inodes 11..13 sit in the inode table at block 5; mtime is at 0x10.
+    // `old.txt` is from 1990, the two `new.*` files from 2023. (An mtime of
+    // zero would count as unknown and pass every time filter.)
+    for (ino, mtime) in [
+        (11u32, 631_152_000u32),
+        (12, 1_700_000_000),
+        (13, 1_700_000_000),
+    ] {
+        let o = 5 * 1024 + (ino as usize - 1) * 128 + 0x10;
+        vol[o..o + 4].copy_from_slice(&mtime.to_le_bytes());
+    }
+    std::fs::write(&img, &vol).unwrap();
+
+    let dry_report = tmp.path().join("dry.csv");
+    let dry = run(&[
+        "undelete",
+        img.to_str().unwrap(),
+        "-o",
+        tmp.path().join("dry_out").to_str().unwrap(),
+        "--dry-run",
+        "--name",
+        "*.txt",
+        "--modified-after",
+        "2000-01-01",
+        "--report",
+        dry_report.to_str().unwrap(),
+    ]);
+    assert!(
+        dry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    assert!(!tmp.path().join("dry_out").exists());
+
+    let real_out = tmp.path().join("real_out");
+    let real_report = tmp.path().join("real.csv");
+    let real = run(&[
+        "undelete",
+        img.to_str().unwrap(),
+        "-o",
+        real_out.to_str().unwrap(),
+        "--name",
+        "*.txt",
+        "--modified-after",
+        "2000-01-01",
+        "--report",
+        real_report.to_str().unwrap(),
+    ]);
+    assert!(
+        real.status.success(),
+        "{}",
+        String::from_utf8_lossy(&real.stderr)
+    );
+
+    let written: Vec<String> = std::fs::read_dir(&real_out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(written, vec!["new.txt".to_string()]);
+    assert_eq!(
+        std::fs::read(real_out.join("new.txt")).unwrap(),
+        b"new and matching"
+    );
+
+    let dry_rows = manifest_rows(&dry_report);
+    let real_rows = manifest_rows(&real_report);
+    assert_eq!(dry_rows.len(), 1, "{dry_rows:?}");
+    assert_eq!(real_rows.len(), 1, "{real_rows:?}");
+    // Same path and size; the real row carries the digest the dry one lacks.
+    let strip = |r: &str| r.rsplit_once(',').map(|(a, _)| a.to_string()).unwrap();
+    assert_eq!(strip(&dry_rows[0]), strip(&real_rows[0]));
+    assert!(dry_rows[0].contains("new.txt"));
+    let dry_stdout = String::from_utf8_lossy(&dry.stdout);
+    assert!(dry_stdout.contains("Would recover 1 "), "{dry_stdout}");
+}
+
+/// `--organize` with two files that would take one name: carved names are
+/// counter-prefixed, so both land in the type folder under distinct names,
+/// and the manifest resolves to both.
+#[test]
+fn organize_keeps_two_same_type_files_apart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+    let report = tmp.path().join("manifest.csv");
+    let a = common::jpeg(&vec![0x51u8; 1200]);
+    let b = common::jpeg(&vec![0x52u8; 1300]);
+    let mut data = vec![0u8; 512];
+    data.extend_from_slice(&a);
+    data.extend_from_slice(&[0u8; 512]);
+    data.extend_from_slice(&b);
+    std::fs::write(&img, &data).unwrap();
+
+    let out = run(&[
+        "scan",
+        img.to_str().unwrap(),
+        "-o",
+        out_dir.to_str().unwrap(),
+        "--organize",
+        "--report",
+        report.to_str().unwrap(),
+        "-q",
+    ]);
+    assert!(out.status.success());
+    let jpg_dir = out_dir.join("jpg");
+    let mut names: Vec<String> = std::fs::read_dir(&jpg_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 2);
+    assert_ne!(names[0], names[1]);
+    let mut files: Vec<Vec<u8>> = names
+        .iter()
+        .map(|n| std::fs::read(jpg_dir.join(n)).unwrap())
+        .collect();
+    files.sort();
+    let mut want = vec![a, b];
+    want.sort();
+    assert_eq!(files, want);
+    let rows = manifest_rows(&report);
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        let name = row.split(',').next().unwrap();
+        assert!(name.starts_with("jpg/"), "{row}");
+        assert!(out_dir.join(name).exists(), "{row}");
+    }
+}
+
+/// `--unallocated` with `--volume N` on a two-volume disk: only the chosen
+/// volume's free space is carved, and only its file is undeleted.
+#[test]
+fn unallocated_with_volume_selects_one_volume() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    // Two FAT32 volumes on an MBR disk. Each holds a deleted file in cluster 3
+    // (free), and a JPEG planted in free cluster 5 for carving.
+    const BPS: usize = 512;
+    const FIRST_DATA: usize = 544;
+    let cluster_off = |c: usize| (FIRST_DATA + (c - 2)) * BPS;
+    let jpeg0 = common::jpeg(&vec![0x61u8; 700]);
+    let jpeg1 = common::jpeg(&vec![0x62u8; 800]);
+    let mut v0 = common::fat32_volume(b"ONE     ", b"TXT", b"file on volume one");
+    let mut v1 = common::fat32_volume(b"TWO     ", b"TXT", b"file on volume two");
+    let c5 = cluster_off(5);
+    v0[c5..c5 + jpeg0.len()].copy_from_slice(&jpeg0);
+    v1[c5..c5 + jpeg1.len()].copy_from_slice(&jpeg1);
+    let lba0 = 64usize;
+    let lba1 = lba0 + v0.len() / BPS + 64;
+    let mut disk = vec![0u8; lba1 * BPS + v1.len()];
+    disk[lba0 * BPS..lba0 * BPS + v0.len()].copy_from_slice(&v0);
+    disk[lba1 * BPS..lba1 * BPS + v1.len()].copy_from_slice(&v1);
+    disk[510] = 0x55;
+    disk[511] = 0xAA;
+    for (i, lba) in [lba0, lba1].iter().enumerate() {
+        let p = 446 + i * 16;
+        disk[p + 4] = 0x0C;
+        disk[p + 8..p + 12].copy_from_slice(&(*lba as u32).to_le_bytes());
+        disk[p + 12..p + 16].copy_from_slice(&((v0.len() / BPS) as u32).to_le_bytes());
+    }
+    std::fs::write(&img, &disk).unwrap();
+
+    let out = run(&[
+        "recover",
+        img.to_str().unwrap(),
+        "-o",
+        out_dir.to_str().unwrap(),
+        "--unallocated",
+        "--volume",
+        "1",
+        "-q",
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let named: Vec<Vec<u8>> = walk_files(&out_dir.join("named"));
+    assert_eq!(
+        named,
+        vec![b"file on volume two".to_vec()],
+        "only volume 1's file"
+    );
+    let carved: Vec<Vec<u8>> = walk_files(&out_dir.join("carved"));
+    assert_eq!(carved, vec![jpeg1], "only volume 1's free space");
+}
+
+fn walk_files(dir: &Path) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(std::fs::read(p).unwrap());
+            }
+        }
+    }
+    out.sort();
+    out
+}

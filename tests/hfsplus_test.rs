@@ -2,7 +2,7 @@
 
 mod common;
 
-use unearth::recover::{self, RecoverOptions};
+use unearth::recover::{self, RecoverOptions, RecoverStats};
 use unearth::source::Source;
 
 fn write_img(bytes: &[u8]) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -172,4 +172,94 @@ fn recovers_from_a_stale_node_in_the_journal() {
         .unwrap();
     assert_eq!(stats.recovered, 1, "the journal copy must be found");
     assert_eq!(std::fs::read(out.join("journal.txt")).unwrap(), payload);
+}
+
+// --- Malformed extents-overflow records --------------------------------------
+
+/// The bytes a file made of these blocks (in logical order) holds, cut at
+/// `size`: every block is stamped with its index by the fixture.
+fn stamped(blocks: &[u8], size: usize) -> Vec<u8> {
+    let mut v: Vec<u8> = blocks
+        .iter()
+        .flat_map(|&b| std::iter::repeat(b).take(512))
+        .collect();
+    v.truncate(size);
+    v
+}
+
+fn undelete_overflow(
+    records: &[(u32, Vec<(u32, u32)>)],
+    size: u64,
+) -> (Option<Vec<u8>>, RecoverStats) {
+    let (tmp, img) = write_img(&common::hfsplus_overflow_volume("frag.bin", size, records));
+    let src = Source::open(&img).unwrap();
+    let vols = recover::detect(&src).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vols[0]
+        .recover_deleted(&src, &out, &RecoverOptions::default())
+        .unwrap();
+    (std::fs::read(out.join("frag.bin")).ok(), stats)
+}
+
+/// Inline block 14, then overflow records for logical blocks 1 and 2..3.
+const SIZE: u64 = 4 * 512 - 10;
+fn good_records() -> Vec<(u32, Vec<(u32, u32)>)> {
+    vec![(1, vec![(16, 1)]), (2, vec![(18, 2)])]
+}
+
+#[test]
+fn overflow_records_in_key_order_rebuild_the_file_to_its_eof() {
+    let (got, stats) = undelete_overflow(&good_records(), SIZE);
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(got.unwrap(), stamped(&[14, 16, 18, 19], SIZE as usize));
+}
+
+/// Each malformed tree either refuses the file or yields a short prefix of
+/// it: never a full-size file assembled from the wrong blocks.
+fn assert_not_a_wrong_full_file(what: &str, got: Option<Vec<u8>>, stats: &RecoverStats) {
+    let right = stamped(&[14, 16, 18, 19], SIZE as usize);
+    match got {
+        None => assert_eq!(stats.recovered, 0, "{what}: refused"),
+        Some(bytes) => {
+            assert!(
+                bytes == right || bytes.len() < right.len(),
+                "{what}: a full-size file with the wrong blocks"
+            );
+            assert_eq!(
+                &bytes[..],
+                &right[..bytes.len()],
+                "{what}: not the file's own prefix"
+            );
+        }
+    }
+}
+
+#[test]
+fn overflow_records_out_of_order_do_not_scramble_the_file() {
+    let mut records = good_records();
+    records.reverse();
+    let (got, stats) = undelete_overflow(&records, SIZE);
+    assert_not_a_wrong_full_file("out of order", got, &stats);
+}
+
+#[test]
+fn a_missing_middle_overflow_record_does_not_close_the_gap_with_other_blocks() {
+    let records = vec![(2, vec![(18, 2)])];
+    let (got, stats) = undelete_overflow(&records, SIZE);
+    assert_not_a_wrong_full_file("missing middle", got, &stats);
+}
+
+#[test]
+fn two_overflow_records_for_one_range_do_not_both_get_used() {
+    let records = vec![(1, vec![(16, 1)]), (1, vec![(22, 1)]), (2, vec![(18, 2)])];
+    let (got, stats) = undelete_overflow(&records, SIZE);
+    assert_not_a_wrong_full_file("duplicate range", got, &stats);
+}
+
+#[test]
+fn an_overflow_record_beyond_the_volume_is_not_read() {
+    let end = common::HFS_OVERFLOW_TOTAL_BLOCKS as u32;
+    let records = vec![(1, vec![(16, 1)]), (2, vec![(end - 1, 3)])];
+    let (got, stats) = undelete_overflow(&records, SIZE);
+    assert_not_a_wrong_full_file("beyond the volume", got, &stats);
 }

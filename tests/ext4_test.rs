@@ -3,8 +3,10 @@
 //! containing stale/deleted entries in their slack), then verify recovery
 //! restores names, paths, and contents.
 
+mod common;
+
 use unearth::ext4;
-use unearth::recover;
+use unearth::recover::{self, RecoverOptions};
 use unearth::source::Source;
 
 const BS: usize = 1024; // block size
@@ -226,4 +228,125 @@ fn recovers_deleted_ext4_files() {
         std::fs::read(out_dir.join("logs").join("app.log")).unwrap(),
         applog
     );
+}
+
+// --- Classic indirect block maps (ext2/ext3 style) -------------------------
+
+fn indirect_payload() -> Vec<u8> {
+    (0..14_000u32)
+        .map(|i| (i.wrapping_mul(7) % 251) as u8)
+        .collect()
+}
+
+fn source_in(tmp: &tempfile::TempDir, bytes: &[u8]) -> Source {
+    let p = tmp.path().join("ext2.img");
+    std::fs::write(&p, bytes).unwrap();
+    Source::open(&p).unwrap()
+}
+
+/// A file mapped by direct pointers and a single-indirect block, with unused
+/// blocks between its data blocks, comes back byte for byte.
+#[test]
+fn recovers_a_file_through_a_single_indirect_block() {
+    let payload = indirect_payload();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = source_in(&tmp, &common::ext_indirect_volume("big.bin", &payload));
+    let vol = ext4::Volume::parse(&src, 0).unwrap();
+    assert_eq!(vol.version(), "ext2");
+    let out = tmp.path().join("out");
+    let stats = vol
+        .recover_deleted(&src, &out, &RecoverOptions::default())
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(std::fs::read(out.join("big.bin")).unwrap(), payload);
+    assert_eq!(stats.files[0].size, payload.len() as u64);
+}
+
+#[test]
+fn dry_run_reports_the_indirect_file_with_its_size() {
+    let payload = indirect_payload();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = source_in(&tmp, &common::ext_indirect_volume("big.bin", &payload));
+    let vol = ext4::Volume::parse(&src, 0).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vol
+        .recover_deleted(
+            &src,
+            &out,
+            &RecoverOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(stats.files.len(), 1);
+    assert_eq!(stats.files[0].size, payload.len() as u64);
+    assert_eq!(stats.files[0].path, std::path::PathBuf::from("big.bin"));
+    assert!(!out.exists(), "a dry run writes nothing");
+}
+
+/// With the image cut just before the indirect block, the tail of the map is
+/// gone: the file is refused or comes back short, never zero-padded to size.
+#[test]
+fn a_truncated_indirect_block_never_yields_a_padded_file() {
+    let payload = indirect_payload();
+    let mut img = common::ext_indirect_volume("big.bin", &payload);
+    img.truncate(common::EXT_INDIRECT_BLOCK * 1024);
+    let tmp = tempfile::tempdir().unwrap();
+    let src = source_in(&tmp, &img);
+    let vol = ext4::Volume::parse(&src, 0).unwrap();
+    let out = tmp.path().join("out");
+    let stats = vol
+        .recover_deleted(&src, &out, &RecoverOptions::default())
+        .unwrap();
+    let file = out.join("big.bin");
+    if file.exists() {
+        let got = std::fs::read(&file).unwrap();
+        assert!(got.len() < payload.len(), "must not be padded to full size");
+        assert_eq!(
+            got[..],
+            payload[..got.len()],
+            "what came back is the file's own prefix"
+        );
+        let row = stats.files.iter().find(|f| f.recovered).unwrap();
+        assert_eq!(
+            row.size,
+            got.len() as u64,
+            "the report says what was written"
+        );
+    } else {
+        assert_eq!(stats.recovered, 0);
+        assert_eq!(stats.skipped, 1);
+    }
+}
+
+// --- Dry run (moved from tests/dryrun_test.rs) ---------------------------------
+
+/// `RecoverOptions::dry_run`: files are reported but not written.
+#[test]
+fn dry_run_reports_without_writing() {
+    let payload = b"will not be written in dry run";
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path = tmp.path().join("disk.img");
+    std::fs::write(&img_path, common::ext_volume("ghost.bin", payload)).unwrap();
+    let out_dir = tmp.path().join("out");
+
+    let source = Source::open(&img_path).unwrap();
+    let vol = ext4::Volume::parse(&source, 0).unwrap();
+    let opts = RecoverOptions {
+        dry_run: true,
+        ..Default::default()
+    };
+    let stats = vol.recover_deleted(&source, &out_dir, &opts).unwrap();
+
+    // Reported as recoverable...
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(stats.files.len(), 1);
+    assert_eq!(stats.files[0].path.to_string_lossy(), "ghost.bin");
+    assert!(stats.files[0].recovered);
+    assert_eq!(stats.files[0].size, payload.len() as u64);
+    // ...but nothing actually written to disk.
+    assert!(!out_dir.join("ghost.bin").exists());
+    assert!(!out_dir.exists());
 }

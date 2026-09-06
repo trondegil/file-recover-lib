@@ -50,6 +50,39 @@ still be on disk and the test counts it. `maybe` means the scenario went on to
 overwrite it on purpose, so it is recorded but not counted; a recovery is a
 bonus and is reported as one.
 
+The expected file also carries, per deleted file, `extents`: how many extents
+it occupied just before it was deleted, where the platform can report it
+(Linux, through `filefrag`), so that "fragmented" is a measured fact. Under
+`live` it lists the files still present at the end of the plan (path, size,
+SHA-256), regenerated from the scenario and seed by `corpus_tool live`; the
+test uses them to tell a carve of a live file from a stray.
+
+## What the test measures
+
+Per image, `undelete` and `scan` run once each, and the test compares what
+came back with the expected file:
+
+- **Recall**, by content: the fraction of `intact` deleted files whose bytes
+  came back from `undelete`, and of the carvable ones whose bytes came back
+  from `scan`. Hashes are counted as a multiset, so two expected files with
+  the same content need two recovered copies.
+- **Per-file identity**: the baseline records which expected paths came back
+  (`baseline.recovered`). A path that came back on the last recording and
+  is missing now fails the image even if the ratio held, so a regression
+  cannot hide behind a gain elsewhere.
+- **Names and times**: whether each file came back under its own name (FAT
+  loses the first character of a short name to the deletion marker, which
+  the comparison allows for) and with its modification time; a file back
+  under another name is noted, a wrong time fails.
+- **Precision**: carved files whose content matches neither a deleted nor a
+  live file are strays. Their number is reported; the ones the carver
+  graded `verified` are the ones that matter (a stray the carver vouches
+  for), and their count is a baseline (`baseline.unknown_verified`) that
+  must not grow.
+
+The oracle itself is unit-tested in `tests/corpus_test.rs` with mock trees
+(a swap, a duplicate hash, a stray verified carve) and needs no images.
+
 ## Scenarios
 
 Each filesystem gets one image per scenario.
@@ -87,6 +120,23 @@ Notes on what the platforms do that a synthetic image never would:
   (which runs elevated); download its two artifacts into `corpus/images/`
   and `corpus/expected/`, then regenerate the lock.
 - 64 MiB is the smallest FAT32 volume macOS will create.
+
+## Known misses
+
+**HFS+ (macOS): the last deleted file comes back with the wrong bytes.**
+On `macos-hfsplus-baseline`, `-deeptree`, `-longnames`, and `-nonascii`
+one file each is missed by `undelete` (and on `-longnames` by `scan` too).
+It is the last file the plan deleted, every time. The catalog record is
+found and the file is written under its right name and size, but its
+blocks now hold a gzip stream whose contents start with `3SLD`: the
+`.fseventsd` log macOS writes when the volume is unmounted, listing the
+very deletions the plan made. The log is allocated into the blocks the last
+deletion freed, so the data is gone from the disk and no recovery can bring
+it back; the tool's answer is right. The recipe now creates
+`.fseventsd/no_log` on the volume before applying the plan, which stops the
+log being written; images built from here on should not show the miss. The
+recorded baselines stay as they are until those images are rebuilt and
+published.
 
 ## Building the images
 

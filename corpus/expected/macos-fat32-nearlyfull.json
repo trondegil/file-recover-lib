@@ -1,7 +1,29 @@
 {
   "baseline": {
+    "recovered": [
+      "full/bmp-012.bmp",
+      "full/bmp-027.bmp",
+      "full/bmp-042.bmp",
+      "full/jpg-000.jpg",
+      "full/jpg-015.jpg",
+      "full/jpg-030.jpg",
+      "full/jpg-045.jpg",
+      "full/pdf-003.pdf",
+      "full/pdf-018.pdf",
+      "full/pdf-033.pdf",
+      "full/pdf-048.pdf",
+      "full/png-006.png",
+      "full/png-021.png",
+      "full/png-036.png",
+      "full/png-051.png",
+      "full/wav-009.wav",
+      "full/wav-024.wav",
+      "full/wav-039.wav",
+      "full/wav-054.wav"
+    ],
     "scan": 1,
-    "undelete": 1
+    "undelete": 1,
+    "unknown_verified": 0
   },
   "files": [
     {
@@ -163,8 +185,201 @@
     "sha256": "19af1170138f2d1a401cc66cd92d8f2ae5fe71308c48fab91e1b23b50a3f7820",
     "size": 67108864
   },
+  "live": [
+    {
+      "path": "full/bmp-002.bmp",
+      "sha256": "8d198e77840a220fc77f3db29119059165a90c79dea0b9ac6b62f0a8b2a02027",
+      "size": 1053717
+    },
+    {
+      "path": "full/bmp-007.bmp",
+      "sha256": "c0ace483a232c38e9ca582bf3b3b1061d9a9a73e062eecffdd91440b8e6f7718",
+      "size": 1046807
+    },
+    {
+      "path": "full/bmp-017.bmp",
+      "sha256": "ad39d95dd2e35c4845da89d93f0c7a9c0bfc79eb256df7d28f7dd496ed99501b",
+      "size": 1071681
+    },
+    {
+      "path": "full/bmp-022.bmp",
+      "sha256": "c94a59dc84f2539c9e52eb8deadb6957bee49ff2780b223097bc6c0386e78513",
+      "size": 905881
+    },
+    {
+      "path": "full/bmp-032.bmp",
+      "sha256": "a063465d3852334390b40d412600f6c78f265dface963d170e5450ca7560c9d9",
+      "size": 881039
+    },
+    {
+      "path": "full/bmp-037.bmp",
+      "sha256": "a50f0c692748963aeb846de1ed92c4ce938be731bf5488152dbd77dd22badd9c",
+      "size": 873057
+    },
+    {
+      "path": "full/bmp-047.bmp",
+      "sha256": "2666d0881a2d7ca4f4be7906e74f7d6886ed41c45475b3530a5a72432b18d60f",
+      "size": 775071
+    },
+    {
+      "path": "full/bmp-052.bmp",
+      "sha256": "98e70f6d485ca30b19666e65653bf2e23df9ce510ad56381f2f8295cfd024d6a",
+      "size": 879947
+    },
+    {
+      "path": "full/jpg-005.jpg",
+      "sha256": "7fca4bbb45f9702425c1f9f97876514b949d577c0dbba6cc4d6efa29600d8d83",
+      "size": 753609
+    },
+    {
+      "path": "full/jpg-010.jpg",
+      "sha256": "32948b55b55acaba7eccc6a54813ee4da9281acdfee9a4b136dc3d5543aaa432",
+      "size": 837941
+    },
+    {
+      "path": "full/jpg-020.jpg",
+      "sha256": "56710068fbf2fc5abb21ff87908be901dcae819fc246509cc7f0ef8ae3b7524e",
+      "size": 652527
+    },
+    {
+      "path": "full/jpg-025.jpg",
+      "sha256": "6cfcd05569ab7b325b03da3e311dcb9e7b964763c566c6c049e08160e7ae6e4e",
+      "size": 1098087
+    },
+    {
+      "path": "full/jpg-035.jpg",
+      "sha256": "fddad6280bf72de457a5b02c5e61dee3fe6c5fa2445d3aaa375bd14225e7fd27",
+      "size": 880317
+    },
+    {
+      "path": "full/jpg-040.jpg",
+      "sha256": "588ec78e948cc4aea061f7b6db3630efadf15ba98930f40be3659b846213e2e6",
+      "size": 974741
+    },
+    {
+      "path": "full/jpg-050.jpg",
+      "sha256": "159bad43e3e8f23710f2d6e444504a17c319484ac9970a0ce007c13d451a84f7",
+      "size": 821353
+    },
+    {
+      "path": "full/jpg-055.jpg",
+      "sha256": "d15bccaa53a64018558f1729a8d9ad45a1ec910dbff84a33880f1e5f72d6da88",
+      "size": 697095
+    },
+    {
+      "path": "full/pdf-008.pdf",
+      "sha256": "c56e324bd2f44afd1bc10c84c586b865cf2a68018c6b82202c037e024c0515b5",
+      "size": 657727
+    },
+    {
+      "path": "full/pdf-013.pdf",
+      "sha256": "b32896e627eeed7d09b0317352616625237810bdb3d67de27cebeae86c583f6b",
+      "size": 1119929
+    },
+    {
+      "path": "full/pdf-023.pdf",
+      "sha256": "d275b2c07340045eeeb34fd09423d8430db2309fb4635f2a2496bec8aaa18830",
+      "size": 777819
+    },
+    {
+      "path": "full/pdf-028.pdf",
+      "sha256": "6b027d518a8a60c84490b308a81c694520145b61d2c3704c6e3c560248e57fc3",
+      "size": 869009
+    },
+    {
+      "path": "full/pdf-038.pdf",
+      "sha256": "c0632d85786a7181874fde26b92165920ecee960b07b41b8d013adf045e73173",
+      "size": 682549
+    },
+    {
+      "path": "full/pdf-043.pdf",
+      "sha256": "70eb117c36589eecacd8004537f855f0d1455975b625f9786ea171949d590743",
+      "size": 1018475
+    },
+    {
+      "path": "full/pdf-053.pdf",
+      "sha256": "efb3870a485b369f98f3a65547b7cbe57d03440950d26fc486d73e4122d43460",
+      "size": 645693
+    },
+    {
+      "path": "full/png-001.png",
+      "sha256": "8d3a69228c01b1d15b263b9591f0553d9255c9b02c28092f37ff712d0675ad74",
+      "size": 675347
+    },
+    {
+      "path": "full/png-011.png",
+      "sha256": "c8c536899cc57c4c494155252b65eaea9007a6efd2806f51ab1b7df769223eaf",
+      "size": 741295
+    },
+    {
+      "path": "full/png-016.png",
+      "sha256": "a774ff56a046e840220e8bfcb4c34864696a8b0b76dfdd3e36e05daac4665451",
+      "size": 1037857
+    },
+    {
+      "path": "full/png-026.png",
+      "sha256": "b6325b3b88a850812b650f7123edb29a9d29b80152cdf9921ee34d2ea68d7d30",
+      "size": 923937
+    },
+    {
+      "path": "full/png-031.png",
+      "sha256": "4299311a15a7b4724e6e4b1104763e15cece1a9dc12609d751ec083a6b8c2511",
+      "size": 918427
+    },
+    {
+      "path": "full/png-041.png",
+      "sha256": "6918a112f490f3d8289d75dd1783bf63026da37a06fc5091e9667a6389dde3d1",
+      "size": 774781
+    },
+    {
+      "path": "full/png-046.png",
+      "sha256": "1b40a4380c82f69b47ccc343aa335207d972a91b6b6493c00f73a02e0e46dbd4",
+      "size": 857069
+    },
+    {
+      "path": "full/png-056.png",
+      "sha256": "9c1e28a3fc99b4b26b9f6e98521088275340654d3e1741184f5350e4e3c409af",
+      "size": 643631
+    },
+    {
+      "path": "full/wav-004.wav",
+      "sha256": "114a5b0eff3d66648f6db821b9cadc25706e90056921732640dc36da4a5a8795",
+      "size": 725099
+    },
+    {
+      "path": "full/wav-014.wav",
+      "sha256": "cc735ce8f6775fe93dadac62e99a76451bf4fba4a07daa0bc8627e4846dcf057",
+      "size": 946085
+    },
+    {
+      "path": "full/wav-019.wav",
+      "sha256": "3dd7788066360c0757a3b1ad98825485a361cf4e28d2742cf582eb62b4dac3ed",
+      "size": 897545
+    },
+    {
+      "path": "full/wav-029.wav",
+      "sha256": "3beac3454e2fce937cfb2736db544d2aacc082ffb804256048ef967563520489",
+      "size": 780917
+    },
+    {
+      "path": "full/wav-034.wav",
+      "sha256": "2b8f3636d3d9470d9fa9a091ad5d7b3b70289e47b0523d665e4f5fa0b1cf60a3",
+      "size": 1044513
+    },
+    {
+      "path": "full/wav-044.wav",
+      "sha256": "02cb5a2d05a3325ada5bffdcc0a2e1f28d2f6691defc27192ea9aa636279299c",
+      "size": 756397
+    },
+    {
+      "path": "full/wav-049.wav",
+      "sha256": "542dd9e31d0003ece15d80d1d9258cdd19040e9ffdb719404d3f65b3d31561b5",
+      "size": 910275
+    }
+  ],
   "live_files": 38,
   "name": "macos-fat32-nearlyfull",
+  "plan_version": 1,
   "platform": "macos",
   "scenario": "nearlyfull",
   "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"

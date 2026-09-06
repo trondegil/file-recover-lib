@@ -281,8 +281,7 @@ impl Volume {
         if rec.len() < self.record_size as usize {
             return Ok(None);
         }
-        apply_fixup(&mut rec, self.bytes_per_sector as usize);
-        if &rec[0..4] != b"FILE" {
+        if &rec[0..4] != b"FILE" || !apply_fixup(&mut rec, self.bytes_per_sector as usize) {
             return Ok(None);
         }
         Ok(Some(rec))
@@ -409,7 +408,9 @@ impl Volume {
                         let _ = fs::remove_file(out_dir.join(&rel));
                         continue;
                     }
-                    stats.record_recovered(rel, data.size, Some(digest))
+                    // The report carries the bytes written, which is the
+                    // claimed size unless a run ran off the end of the source.
+                    stats.record_recovered(rel, written, Some(digest))
                 }
                 _ => stats.record_skipped(rel, data.size),
             }
@@ -499,6 +500,13 @@ impl Volume {
                                 out.write_all(&buf[..n])?;
                                 pos += n as u64;
                                 left -= n as u64;
+                            }
+                            if left > 0 {
+                                // The run reaches past the source: what was
+                                // read is all there is. Counting the rest
+                                // would report a size the file does not have.
+                                written += take - left;
+                                break;
                             }
                         }
                         Some(_) => break, // negative absolute LCN: corrupt
@@ -864,15 +872,30 @@ fn read_runs_range(
     Ok(out)
 }
 
-/// Apply the NTFS Update Sequence Array fixups in place.
-fn apply_fixup(rec: &mut [u8], bytes_per_sector: usize) {
+/// Apply the NTFS Update Sequence Array fixups in place. Every sector tail
+/// must hold the update sequence number the array starts with: the driver
+/// writes it there last, so a tail that differs is a torn write and the
+/// record's attributes cannot be trusted. Returns `false` for such a
+/// record, leaving it unchanged. A record with no array is left as it is.
+fn apply_fixup(rec: &mut [u8], bytes_per_sector: usize) -> bool {
     if rec.len() < 8 {
-        return;
+        return true;
     }
     let usa_off = u16::from_le_bytes([rec[4], rec[5]]) as usize;
     let usa_count = u16::from_le_bytes([rec[6], rec[7]]) as usize;
-    if usa_count == 0 {
-        return;
+    if usa_count == 0 || usa_off + 2 > rec.len() {
+        return true;
+    }
+    let usn = [rec[usa_off], rec[usa_off + 1]];
+    for i in 1..usa_count {
+        let usa_pos = usa_off + i * 2;
+        let sector_end = i * bytes_per_sector;
+        if usa_pos + 2 > rec.len() || sector_end < 2 || sector_end > rec.len() {
+            break;
+        }
+        if [rec[sector_end - 2], rec[sector_end - 1]] != usn {
+            return false;
+        }
     }
     for i in 1..usa_count {
         let usa_pos = usa_off + i * 2;
@@ -884,6 +907,7 @@ fn apply_fixup(rec: &mut [u8], bytes_per_sector: usize) {
         rec[sector_end - 2] = val[0];
         rec[sector_end - 1] = val[1];
     }
+    true
 }
 
 /// Make a single path component safe to write to disk.
@@ -933,18 +957,35 @@ mod tests {
         let mut rec = vec![0u8; 1024];
         rec[4..6].copy_from_slice(&48u16.to_le_bytes()); // USA offset
         rec[6..8].copy_from_slice(&3u16.to_le_bytes()); // USA count (1 + 2 sectors)
+        rec[48] = 0x01; // USN
+        rec[49] = 0x02;
         rec[50] = 0xAA; // USA[1]
         rec[51] = 0xBB;
         rec[52] = 0xCC; // USA[2]
         rec[53] = 0xDD;
-        // The sector tails currently hold the (stale) sequence number.
+        // The sector tails hold the sequence number, as written last.
         rec[510] = 0x01;
         rec[511] = 0x02;
         rec[1022] = 0x01;
         rec[1023] = 0x02;
 
-        apply_fixup(&mut rec, 512);
+        assert!(apply_fixup(&mut rec, 512));
         assert_eq!(&rec[510..512], &[0xAA, 0xBB]);
         assert_eq!(&rec[1022..1024], &[0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn fixup_rejects_a_torn_record_and_leaves_it_untouched() {
+        let mut rec = vec![0u8; 1024];
+        rec[4..6].copy_from_slice(&48u16.to_le_bytes());
+        rec[6..8].copy_from_slice(&3u16.to_le_bytes());
+        rec[48..50].copy_from_slice(&[0x01, 0x02]);
+        rec[50..52].copy_from_slice(&[0xAA, 0xBB]);
+        rec[52..54].copy_from_slice(&[0xCC, 0xDD]);
+        rec[510..512].copy_from_slice(&[0x01, 0x02]);
+        rec[1022..1024].copy_from_slice(&[0x01, 0x03]); // stale: an older USN
+        let before = rec.clone();
+        assert!(!apply_fixup(&mut rec, 512));
+        assert_eq!(rec, before, "a rejected record is not half-patched");
     }
 }

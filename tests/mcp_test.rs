@@ -372,3 +372,240 @@ fn list_volumes_reports_the_partition_table() {
     assert_eq!(parts[0].get("type").unwrap().as_str(), Some("Linux"));
     assert_eq!(parts[0].get("start").unwrap().as_u64(), Some(2048 * 512));
 }
+
+// --- Protocol edges ----------------------------------------------------------
+
+fn num(j: &Json) -> Option<f64> {
+    match j {
+        Json::Num(v) => Some(*v),
+        _ => None,
+    }
+}
+
+fn error_code(resp: &Json) -> Option<f64> {
+    num(resp.get("error")?.get("code")?)
+}
+
+/// Malformed input gets the JSON-RPC error it deserves and does not take the
+/// session down: a later request on the same session is still answered.
+#[test]
+fn protocol_errors_are_coded_and_the_session_continues() {
+    let ping = r#"{"jsonrpc":"2.0","id":99,"method":"ping"}"#;
+
+    // Not JSON at all.
+    let r = session(&["this is not json", ping]);
+    assert_eq!(r.len(), 2);
+    assert_eq!(error_code(&r[0]), Some(-32700.0), "{}", r[0]);
+    assert_eq!(r[0].get("id"), Some(&Json::Null));
+    assert!(r[1].get("result").is_some(), "{}", r[1]);
+
+    // An object that is not a JSON-RPC 2.0 request.
+    let r = session(&[r#"{"id":1,"method":"ping"}"#, ping]);
+    assert_eq!(r.len(), 2);
+    assert_eq!(error_code(&r[0]), Some(-32600.0), "{}", r[0]);
+    let r = session(&[r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#, ping]);
+    assert_eq!(error_code(&r[0]), Some(-32600.0), "{}", r[0]);
+    let r = session(&[r#"{"jsonrpc":"2.0","id":1}"#, ping]);
+    assert_eq!(error_code(&r[0]), Some(-32600.0), "no method: {}", r[0]);
+
+    // A request without an id is a notification: no reply, session goes on.
+    let r = session(&[r#"{"jsonrpc":"2.0","method":"ping"}"#, ping]);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].get("id").and_then(num), Some(99.0));
+
+    // Params of the wrong shape, and a tool name that is not a string.
+    let r = session(&[
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":5}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":7}}"#,
+        ping,
+    ]);
+    assert_eq!(r.len(), 3);
+    assert_eq!(error_code(&r[0]), Some(-32602.0), "{}", r[0]);
+    assert_eq!(error_code(&r[1]), Some(-32602.0), "{}", r[1]);
+    assert!(r[2].get("result").is_some());
+
+    // An unknown tool is a protocol error (MCP: invalid params), an unknown
+    // method is method-not-found.
+    let r = session(&[
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"no/such/method"}"#,
+        ping,
+    ]);
+    assert_eq!(error_code(&r[0]), Some(-32602.0), "{}", r[0]);
+    assert!(r[0].to_string().contains("no_such_tool"));
+    assert_eq!(error_code(&r[1]), Some(-32601.0), "{}", r[1]);
+    assert!(r[2].get("result").is_some());
+
+    // A tool argument of the wrong type is a tool error, reported in band as
+    // the MCP tool contract wants, and names the argument.
+    let r = session(&[
+        r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"scan_status","arguments":{"job_id":"seven"}}}"#,
+        ping,
+    ]);
+    let result = r[0].get("result").unwrap();
+    assert_eq!(result.get("isError").unwrap().as_bool(), Some(true));
+    assert!(r[0].to_string().contains("job_id"), "{}", r[0]);
+    assert!(r[1].get("result").is_some());
+}
+
+fn poll_status(job_id: u64, until: impl Fn(&Json) -> bool, what: &str) -> Json {
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"scan_status","arguments":{{"job_id":{job_id}}}}}}}"#
+    );
+    for _ in 0..20_000 {
+        let st = call(&req);
+        if until(&st) {
+            return st;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    panic!("{what}: status never satisfied the condition");
+}
+
+fn listing(dir: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// Bytes with no long zero runs, so the carver cannot skip ahead and each
+/// chunk takes real time, and no 0xFF, so nothing in the filler can start
+/// or end a JPEG and swallow a planted one.
+fn noisy(seed: u64, len: usize) -> Vec<u8> {
+    (0..len)
+        .map(|i| ((i as u64).wrapping_mul(7).wrapping_add(seed) % 251) as u8)
+        .collect()
+}
+
+/// Cancel a scan that is really running: the job finishes with `cancelled`
+/// set, repeated status calls agree, the output set does not change after
+/// the finished report, and the checkpoint it left is accepted by a resume.
+#[test]
+fn a_running_scan_can_be_cancelled_and_then_resumed() {
+    const MIB: usize = 1024 * 1024;
+    let tmp = tempfile::tempdir().unwrap();
+    let img = tmp.path().join("big.img");
+    let out = tmp.path().join("out");
+    let mut data = noisy(7, 64 * MIB);
+    let jpegs: Vec<Vec<u8>> = (0..8u8)
+        .map(|i| common::jpeg(&vec![0x20 + i; 3000]))
+        .collect();
+    for (i, j) in jpegs.iter().enumerate() {
+        let at = i * 8 * MIB + 1000;
+        data[at..at + j.len()].copy_from_slice(j);
+    }
+    std::fs::write(&img, &data).unwrap();
+
+    let scan_req = format!(
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"scan","arguments":{{"source":"{}","output_dir":"{}","types":["jpg"]}}}}}}"#,
+        j(&img),
+        j(&out)
+    );
+    let job_id = call(&scan_req).get("job_id").unwrap().as_u64().unwrap();
+
+    // Wait until the scan has demonstrably made progress, then cancel.
+    poll_status(
+        job_id,
+        |st| st.get("bytes_scanned").unwrap().as_u64().unwrap_or(0) > 0,
+        "progress",
+    );
+    let cancel_req = format!(
+        r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"scan_cancel","arguments":{{"job_id":{job_id}}}}}}}"#
+    );
+    let c = call(&cancel_req);
+    assert_eq!(c.get("cancel_requested").unwrap().as_bool(), Some(true));
+
+    let finished = poll_status(
+        job_id,
+        |st| !st.get("running").unwrap().as_bool().unwrap(),
+        "finish",
+    );
+    let result = finished.get("result").expect("a result, not an error");
+    assert_eq!(result.get("cancelled").unwrap().as_bool(), Some(true));
+    let scanned = finished.get("bytes_scanned").unwrap().as_u64().unwrap();
+    assert!(
+        scanned < data.len() as u64,
+        "stopped before the end: {scanned}"
+    );
+    let files_after_finish = listing(&out);
+    let recovered = result.get("files_recovered").unwrap().as_u64().unwrap();
+    assert_eq!(files_after_finish.len() as u64, recovered);
+
+    // Repeated status calls agree with each other and with the first report.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let again = poll_status(job_id, |_| true, "again");
+    assert_eq!(again, finished);
+    assert_eq!(listing(&out), files_after_finish, "output set stable");
+
+    // The checkpoint (default: next to the output directory) resumes cleanly.
+    let checkpoint = tmp.path().join("out.checkpoint");
+    assert!(checkpoint.exists(), "a cancelled scan leaves a checkpoint");
+    let resume_req = format!(
+        r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"scan","arguments":{{"source":"{}","output_dir":"{}","types":["jpg"],"resume":true}}}}}}"#,
+        j(&img),
+        j(&out)
+    );
+    let job2 = call(&resume_req).get("job_id").unwrap().as_u64().unwrap();
+    assert_ne!(job2, job_id);
+    let done = poll_status(
+        job2,
+        |st| !st.get("running").unwrap().as_bool().unwrap(),
+        "resume",
+    );
+    let r2 = done.get("result").unwrap();
+    assert_eq!(r2.get("cancelled").unwrap().as_bool(), Some(false));
+    assert_eq!(r2.get("files_recovered").unwrap().as_u64(), Some(8));
+    assert_eq!(listing(&out).len(), 8);
+    let mut got: Vec<Vec<u8>> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+        .collect();
+    got.sort();
+    let mut want = jpegs.clone();
+    want.sort();
+    assert_eq!(got, want, "every planted JPEG, once, byte for byte");
+}
+
+#[test]
+fn two_scans_back_to_back_get_distinct_jobs_and_right_counts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut ids = Vec::new();
+    for (k, count) in [1usize, 2].iter().enumerate() {
+        let img = tmp.path().join(format!("disk{k}.img"));
+        let out = tmp.path().join(format!("out{k}"));
+        let mut data = vec![0u8; 512];
+        for i in 0..*count {
+            data.extend_from_slice(&common::jpeg(&vec![0x30 + i as u8; 1500]));
+            data.extend_from_slice(&[0u8; 512]);
+        }
+        std::fs::write(&img, &data).unwrap();
+        let req = format!(
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"scan","arguments":{{"source":"{}","output_dir":"{}"}}}}}}"#,
+            j(&img),
+            j(&out)
+        );
+        let id = call(&req).get("job_id").unwrap().as_u64().unwrap();
+        let st = poll_status(
+            id,
+            |st| !st.get("running").unwrap().as_bool().unwrap(),
+            "scan",
+        );
+        assert_eq!(
+            st.get("result")
+                .unwrap()
+                .get("files_recovered")
+                .unwrap()
+                .as_u64(),
+            Some(*count as u64)
+        );
+        assert_eq!(listing(&out).len(), *count);
+        ids.push(id);
+    }
+    assert_ne!(ids[0], ids[1]);
+}

@@ -381,17 +381,33 @@ What to do.
 1. Keep the release-please flow that is already in place, and extend it so a
    release is blocked unless the corpus test, the three-platform suite, and
    the release smoke test all pass.
-2. Publish a security policy (`SECURITY.md`) with a contact address and a
+2. Make the commit convention enforceable rather than assumed. release-please
+   parses the Conventional Commit subjects of the commits *inside* a pull
+   request and ignores merge-commit subjects (`RELEASING.md`), so a branch
+   whose commits carry no `fix:`, `feat:`, or `perf:` prefix produces no
+   changelog entry and no version bump however much it changes. Nothing
+   currently caught that: `CONTRIBUTING.md` did not mention the convention
+   and no check rejected a commit that does not parse. Both now exist, and
+   the gap that prompted them is closed. A *Commit messages* section in
+   `CONTRIBUTING.md` gives the types and what each does to the next release;
+   a `commit-messages` CI job runs `.github/check-commit-messages.sh` over a
+   pull request's own commits and fails the build on a subject release-please
+   could not parse. The extended-testing series that exposed this now carries
+   `feat:`, `fix:`, `fix:`, and `corpus:` subjects, so the thirteen bugs it
+   fixes reach the changelog, among them recovered files escaping the output
+   directory through a planted symlink and `unearth image <src> <src>`
+   truncating the source. Done.
+3. Publish a security policy (`SECURITY.md`) with a contact address and a
    promise on response time. A recovery tool reads the most private data a
    person owns.
-3. Produce a software bill of materials with each release and sign the
+4. Produce a software bill of materials with each release and sign the
    binaries and checksums. Users can then verify what they downloaded.
-4. Keep a support matrix of tested OS versions per release, and drop
+5. Keep a support matrix of tested OS versions per release, and drop
    versions deliberately rather than by accident.
-5. Write the "what to do when it fails" document. Which log to attach, how to
+6. Write the "what to do when it fails" document. Which log to attach, how to
    share an image safely (a metadata-only dump the tool can produce, without
    file contents), and what the maintainers can and cannot do with it.
-6. Decide the sustainability model early. Half the current commit history is
+7. Decide the sustainability model early. Half the current commit history is
    AI-assisted and the whole thing was written in about three weeks by one
    person. That is a strength for speed and a risk for continuity. Whether
    that means a second maintainer, a company behind it, or a paid app tier
