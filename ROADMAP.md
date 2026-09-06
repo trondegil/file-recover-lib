@@ -386,15 +386,19 @@ What to do.
    request and ignores merge-commit subjects (`RELEASING.md`), so a branch
    whose commits carry no `fix:`, `feat:`, or `perf:` prefix produces no
    changelog entry and no version bump however much it changes. Nothing
-   currently catches that: `CONTRIBUTING.md` does not mention the convention,
-   and no check rejects a commit that does not parse. Add both. The
-   outstanding case is the extended-testing series (PRs 7 to 10), whose four
-   commits fix thirteen bugs under non-conforming subjects, among them
-   recovered files escaping the output directory through a planted symlink
-   and `unearth image <src> <src>` truncating the source. Reword those
-   subjects before the branches land, or fold the fixes into the changelog's
-   Unreleased section by hand; either way a user reading the release notes
-   should learn that those two bugs existed and are gone.
+   currently caught that: `CONTRIBUTING.md` did not mention the convention
+   and no check rejected a commit that does not parse. Both now exist: a
+   *Commit messages* section in `CONTRIBUTING.md`, and a `commit-messages`
+   CI job running `.github/check-commit-messages.sh` over a pull request's
+   own commits. What remains is the outstanding case that prompted it. The
+   extended-testing series (PRs 7 to 10) fixes thirteen bugs under four
+   non-conforming subjects, among them recovered files escaping the output
+   directory through a planted symlink and `unearth image <src> <src>`
+   truncating the source. Reword those four subjects, or fold the fixes into
+   the changelog's Unreleased section by hand; either way a user reading the
+   release notes should learn that those two bugs existed and are gone. The
+   CI job is `continue-on-error` until then, since those very branches fail
+   it; drop that line once they are dealt with and the check becomes a gate.
 3. Publish a security policy (`SECURITY.md`) with a contact address and a
    promise on response time. A recovery tool reads the most private data a
    person owns.
