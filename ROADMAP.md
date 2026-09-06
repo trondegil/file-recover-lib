@@ -387,18 +387,16 @@ What to do.
    whose commits carry no `fix:`, `feat:`, or `perf:` prefix produces no
    changelog entry and no version bump however much it changes. Nothing
    currently caught that: `CONTRIBUTING.md` did not mention the convention
-   and no check rejected a commit that does not parse. Both now exist: a
-   *Commit messages* section in `CONTRIBUTING.md`, and a `commit-messages`
-   CI job running `.github/check-commit-messages.sh` over a pull request's
-   own commits. What remains is the outstanding case that prompted it. The
-   extended-testing series (PRs 7 to 10) fixes thirteen bugs under four
-   non-conforming subjects, among them recovered files escaping the output
+   and no check rejected a commit that does not parse. Both now exist, and
+   the gap that prompted them is closed. A *Commit messages* section in
+   `CONTRIBUTING.md` gives the types and what each does to the next release;
+   a `commit-messages` CI job runs `.github/check-commit-messages.sh` over a
+   pull request's own commits and fails the build on a subject release-please
+   could not parse. The extended-testing series that exposed this now carries
+   `feat:`, `fix:`, `fix:`, and `corpus:` subjects, so the thirteen bugs it
+   fixes reach the changelog, among them recovered files escaping the output
    directory through a planted symlink and `unearth image <src> <src>`
-   truncating the source. Reword those four subjects, or fold the fixes into
-   the changelog's Unreleased section by hand; either way a user reading the
-   release notes should learn that those two bugs existed and are gone. The
-   CI job is `continue-on-error` until then, since those very branches fail
-   it; drop that line once they are dealt with and the check becomes a gate.
+   truncating the source. Done.
 3. Publish a security policy (`SECURITY.md`) with a contact address and a
    promise on response time. A recovery tool reads the most private data a
    person owns.

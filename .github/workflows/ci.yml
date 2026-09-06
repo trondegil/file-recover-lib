@@ -45,16 +45,10 @@ jobs:
   # Releases are generated from commit subjects, so a subject release-please
   # cannot parse is a change that never reaches the changelog. Checked on
   # pull requests, where the set of commits is well defined.
-  #
-  # Informational until the extended-testing branches land: their commits
-  # predate this check and do not parse (ROADMAP.md, step 7, item 2). Drop
-  # `continue-on-error` once those subjects are reworded, and the check
-  # becomes the gate it is meant to be.
   commit-messages:
-    name: commit messages parse (informational)
+    name: commit messages parse
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
