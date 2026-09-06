@@ -4,6 +4,32 @@ All notable changes to `unearth` are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0](https://github.com/trondegil/file-recover-lib/compare/unearth-v0.4.0...unearth-v0.5.0) (2026-09-06)
+
+
+### Features
+
+* check JPEG structure while reassembling, and settle XFS with real images (roadmap step 5) ([8a1a214](https://github.com/trondegil/file-recover-lib/commit/8a1a214155eb11d2d862d1053591d5c49029c963))
+* confine every recovered write, and find volumes in extended partitions ([3d72f5c](https://github.com/trondegil/file-recover-lib/commit/3d72f5c5ea2599590c6e5f26b0ab59594ed4bf4f))
+* reassemble fragmented FAT and exFAT files from the allocation map (roadmap step 5.1) ([bccd114](https://github.com/trondegil/file-recover-lib/commit/bccd114e03ad0589e491c5c1d0d922e7931a5886))
+* say exactly what the tool can do (roadmap step 4) ([5fa9351](https://github.com/trondegil/file-recover-lib/commit/5fa9351d0ce34879aaff959ead2ec388350d6c23))
+
+
+### Bug Fixes
+
+* correct the bytes recovered from NTFS, HFS+, and the carver ([66e1c34](https://github.com/trondegil/file-recover-lib/commit/66e1c34df662948f3ecea692bd700faec0c62ed6))
+* harden the engine against hostile input and long sessions (roadmap step 3) ([43237f7](https://github.com/trondegil/file-recover-lib/commit/43237f7253185b0e6e8186e6d65fcec01526a119))
+* read raw devices the platform way and keep recovered names writable everywhere ([f8fda28](https://github.com/trondegil/file-recover-lib/commit/f8fda280f14035bca619111cf6ecee50d68bec54))
+* recover from real macOS and Linux disks, not just synthetic ones ([107295f](https://github.com/trondegil/file-recover-lib/commit/107295f7ea39836faa6c80e340b36313cf42fb83))
+* recover what Windows leaves behind on FAT32 and exFAT ([982d71f](https://github.com/trondegil/file-recover-lib/commit/982d71f0693e97f4bd0f8066020761d1e7fcb297))
+* reject stale image maps, malformed MCP requests, and bad checkpoints ([7b22194](https://github.com/trondegil/file-recover-lib/commit/7b221949ac4048db1adfd21ba17f87b7c40d9912))
+* two crashes the fuzzers found in their first minute ([692ad18](https://github.com/trondegil/file-recover-lib/commit/692ad18bfc6bc79006b2de52bbf34fc953db87ab))
+
+
+### Performance Improvements
+
+* skip runs of zero bytes in the carver's scan loop ([b61e8d4](https://github.com/trondegil/file-recover-lib/commit/b61e8d4883c8830d304a936f3ad93703026d8879))
+
 ## [Unreleased]
 
 ### Performance

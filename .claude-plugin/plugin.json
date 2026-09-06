@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "unearth",
   "displayName": "Unearth",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Recover deleted and lost files from disk images and devices with an AI agent: signature-based carving, filesystem-aware undelete (FAT/exFAT/NTFS/ext/HFS+), bad-sector-tolerant imaging, and volume triage — via the unearth MCP server. Includes a skill for authoring custom carvers. Requires the `unearth` binary on PATH.",
   "author": {
     "name": "Marcel Roozekrans"

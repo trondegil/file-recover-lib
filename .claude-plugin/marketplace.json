@@ -9,7 +9,7 @@
       "name": "unearth",
       "source": "./",
       "description": "Drive an AI agent through signature-based file carving, filesystem-aware undelete, disk imaging, and volume triage via the unearth MCP server, plus a skill for authoring custom carvers. Requires the `unearth` binary on PATH.",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "author": {
         "name": "Marcel Roozekrans"
       },

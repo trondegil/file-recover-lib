@@ -1,6 +1,6 @@
 [package]
 name = "unearth"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.75"
 description = "A dependency-light, read-only data-recovery & disk-forensics toolkit in Rust: filesystem-aware undelete (FAT/exFAT/NTFS/ext/HFS+), signature carving of 150+ formats, whole-filesystem & lost-partition recovery, and bad-sector imaging. Scriptable or agent-driven via MCP."
