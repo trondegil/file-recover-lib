@@ -1,7 +1,15 @@
 {
   "baseline": {
+    "recovered": [
+      "file-01-0.jpg",
+      "projects/2024/q1/file-10-0.bmp",
+      "projects/2024/q1/file-11-1.pdf",
+      "projects/2024/q1/file-12-2.wav",
+      "projects/archive/old/file-21-2.bin"
+    ],
     "scan": 1,
-    "undelete": 1
+    "undelete": 1,
+    "unknown_verified": 0
   },
   "files": [
     {
@@ -51,8 +59,91 @@
     "sha256": "8707face1b5b936ade5ec9461c78daad035569199ec7d27f3894064503d1867b",
     "size": 67108864
   },
+  "live": [
+    {
+      "path": "file-02-1.png",
+      "sha256": "794ce5614d362d5d4ad6c2bb436b4d834c43d58d1f38e3f7d4f935664732427c",
+      "size": 496123
+    },
+    {
+      "path": "file-03-2.bmp",
+      "sha256": "a30ae16632e13d264048aa66c4a105826950f0c419d6ab7daba1f07879d66bfb",
+      "size": 120805
+    },
+    {
+      "path": "projects/2024/file-07-0.bin",
+      "sha256": "4c1bfb8b739edbc7621162949ae8d404b551903981a0faaa6f11580a17f3b90e",
+      "size": 437461
+    },
+    {
+      "path": "projects/2024/file-08-1.jpg",
+      "sha256": "bb2b35ffe3e62bfa12e0c0a9142bac039a119f5604d8f4bd42cac39a4f7f3443",
+      "size": 343287
+    },
+    {
+      "path": "projects/2024/file-09-2.png",
+      "sha256": "0cb1ffe39456cceb615a41fe9a1adcabd69d3a52a491842dfea9afed8b5beae9",
+      "size": 30713
+    },
+    {
+      "path": "projects/2024/q2/file-13-0.txt",
+      "sha256": "10d6fbe6cb26c934b6f65d952cfffacdc73e590f105496bf8aaa8f2b0f9a7623",
+      "size": 66367
+    },
+    {
+      "path": "projects/2024/q2/file-14-1.bin",
+      "sha256": "2ca3da8f7ff7139c839c15fe0676c3aae948e8ca9b46a80e26ed9d41877e9d76",
+      "size": 292667
+    },
+    {
+      "path": "projects/2024/q2/file-15-2.jpg",
+      "sha256": "9a9c82ab5d8e4e7e8db3f95ba4f70830f4a950f1985ed751b5ecf25c969ee69f",
+      "size": 75951
+    },
+    {
+      "path": "projects/archive/file-16-0.png",
+      "sha256": "c45df4b20722e6aa0e1bf5e3c5b469142d9ac53b0a0a5a34cda537cb7f2baa98",
+      "size": 492601
+    },
+    {
+      "path": "projects/archive/file-17-1.bmp",
+      "sha256": "752065a167e074abee55eff644838c5fcd0919043cfc23f4d49e30b47dbe8953",
+      "size": 331641
+    },
+    {
+      "path": "projects/archive/file-18-2.pdf",
+      "sha256": "779c533114a983a49f2289c09b7bc7e6033ef8a70370503c4436ac4f8bd66f63",
+      "size": 115567
+    },
+    {
+      "path": "projects/archive/old/file-19-0.wav",
+      "sha256": "c999a14f31ce8cafc66863dc87dc80b95b092c13aeaa92dacf5ac3dadd1b754a",
+      "size": 181439
+    },
+    {
+      "path": "projects/archive/old/file-20-1.txt",
+      "sha256": "b0e77ae671ed09b772d61cd2108be59145132498d4d38c58aeb669529bb1e81d",
+      "size": 159547
+    },
+    {
+      "path": "projects/file-04-0.pdf",
+      "sha256": "498917ee476b7ddcbf1c8847c42aa5cd927a1e0e8ae7f549b835644a8627eafa",
+      "size": 133955
+    },
+    {
+      "path": "projects/file-05-1.wav",
+      "sha256": "5eb6515970609db6730375ea21e15d9be8db37d98f1aae0691840157a14a7098",
+      "size": 446453
+    },
+    {
+      "path": "projects/file-06-2.txt",
+      "sha256": "7be50e05d098ba81b0b7fbcbe5b104a438242ee75858ac67b02e62477dee9e6e",
+      "size": 282363
+    }
+  ],
   "live_files": 16,
   "name": "macos-exfat-deeptree",
+  "plan_version": 1,
   "platform": "macos",
   "scenario": "deeptree",
   "source": "macOS 26.6.2 diskutil eraseVolume (hdiutil-attached raw image)"

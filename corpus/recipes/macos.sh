@@ -32,6 +32,13 @@ fs_format() {
     MNT="$WORK/mnt-$$"
     mkdir -p "$MNT"
     diskutil mount -mountPoint "$MNT" "$DEV" >/dev/null
+    # Keep fseventsd from writing its log at unmount: the log is written into
+    # the blocks the last deletion freed, and took the last deleted file's
+    # data with it in every HFS+ image of the first corpus build (see
+    # corpus/README.md, "Known misses"). A `no_log` marker disables logging
+    # for the volume; the folder is what a real card carries anyway.
+    mkdir -p "$MNT/.fseventsd"
+    touch "$MNT/.fseventsd/no_log"
 }
 
 fs_sync() {

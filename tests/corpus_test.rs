@@ -102,8 +102,17 @@ struct Expected {
     doc: Json,
     filesystem: String,
     files: Vec<ExpectedFile>,
+    /// Files still present at the end of the plan (`corpus_tool live`):
+    /// a carve that matches one of these is a live file, not a stray.
+    live_hashes: HashSet<String>,
     baseline_undelete: Option<f64>,
     baseline_scan: Option<f64>,
+    /// Expected paths undelete brought back on the last recording. Losing
+    /// any one of them is a regression even when the recall ratio holds.
+    baseline_recovered: Vec<String>,
+    /// Carved files graded `verified` that matched neither a deleted nor a
+    /// live file on the last recording: the precision floor to ratchet.
+    baseline_unknown_verified: Option<u64>,
 }
 
 fn read_expected(path: &Path) -> Expected {
@@ -126,9 +135,27 @@ fn read_expected(path: &Path) -> Expected {
         Some(Json::Num(n)) => Some(*n),
         _ => None,
     };
+    let live_hashes = doc
+        .get("live")
+        .and_then(Json::as_array)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|f| str_field(f, "sha256"))
+        .collect();
+    let baseline_recovered = doc
+        .get("baseline")
+        .and_then(|b| b.get("recovered"))
+        .and_then(Json::as_array)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|p| p.as_str().map(str::to_string))
+        .collect();
     Expected {
         baseline_undelete: num("undelete"),
         baseline_scan: num("scan"),
+        baseline_recovered,
+        baseline_unknown_verified: num("unknown_verified").map(|n| n as u64),
+        live_hashes,
         filesystem: str_field(&doc, "filesystem").unwrap_or_default(),
         doc,
         files,
@@ -274,6 +301,42 @@ struct Measurement {
     scan_hits: usize,
     undelete_recall: f64,
     scan_recall: f64,
+    /// Expected paths whose bytes undelete brought back.
+    recovered_paths: Vec<String>,
+    /// Of those, the ones that came back under a different name than
+    /// expected (a hash found at the wrong path: a swap, or a lost name).
+    misplaced: usize,
+    /// Carved files whose hash matches neither a deleted nor a live file.
+    unknown_carved: usize,
+    /// Of those, the ones the carver graded `verified`.
+    unknown_verified: usize,
+    unknown_verified_names: Vec<String>,
+}
+
+/// One carved file as the scan manifest records it: name, hash, grade.
+struct Carved {
+    name: String,
+    sha256: String,
+    confidence: String,
+}
+
+/// Read a `scan --report` CSV manifest: `name,type,offset,size,sha256,confidence`.
+fn read_scan_manifest(path: &Path) -> Vec<Carved> {
+    let text = fs::read_to_string(path).unwrap_or_default();
+    text.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(',').collect();
+            if f.len() < 6 {
+                return None;
+            }
+            Some(Carved {
+                name: f[0].to_string(),
+                sha256: f[4].to_string(),
+                confidence: f[5].to_string(),
+            })
+        })
+        .collect()
 }
 
 fn ratio(hits: usize, total: usize) -> f64 {
@@ -320,31 +383,56 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
             image.display()
         );
     }
+    let manifest = work.join("scan.csv");
     run(&[
         "scan",
         image.to_str().unwrap(),
         "-o",
         scan_dir.to_str().unwrap(),
         "--quiet",
+        "--report",
+        manifest.to_str().unwrap(),
     ]);
 
     let undeleted = hash_tree(&undelete_dir);
-    let undeleted_hashes: HashSet<&str> = undeleted.iter().map(|r| r.sha256.as_str()).collect();
-    let carved: HashSet<String> = hash_tree(&scan_dir).into_iter().map(|r| r.sha256).collect();
+    let carved = read_scan_manifest(&manifest);
+    assess(expected, &undeleted, &carved)
+}
 
-    // A name match is informational: FAT loses the first character of a short
-    // name to the deletion marker, and the output may sit under `volume_N/`.
-    let name_matches = |want: &str| {
-        let want_name = want.rsplit('/').next().unwrap_or(want).to_lowercase();
-        undeleted.iter().any(|r| {
-            let p = &r.path;
-            let got = p.rsplit('/').next().unwrap_or(p).to_lowercase();
-            // Compare by character: names are not ASCII.
-            got == want_name
-                || (got.chars().count() == want_name.chars().count()
-                    && got.chars().skip(1).eq(want_name.chars().skip(1)))
-        })
-    };
+/// Whether a recovered path names the expected file: same final component,
+/// or the same but for the first character, which FAT loses to the deletion
+/// marker. The output may sit under `volume_N/`, so only the name counts.
+fn same_name(got_path: &str, want_path: &str) -> bool {
+    let want = want_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(want_path)
+        .to_lowercase();
+    let got = got_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(got_path)
+        .to_lowercase();
+    // Compare by character: names are not ASCII.
+    got == want
+        || (got.chars().count() == want.chars().count()
+            && got.chars().skip(1).eq(want.chars().skip(1)))
+}
+
+/// Score what undelete and scan produced against what the image is known
+/// to hold. Pure, so the oracle itself can be tested with mock trees.
+///
+/// Recall counts each expected file as recovered when a recovered file
+/// with its hash is available: the hashes are a multiset, so two expected
+/// files sharing one hash need two recovered copies. Precision counts the
+/// carved files matching neither a deleted nor a live file, and how many of
+/// those the carver graded `verified`.
+fn assess(expected: &Expected, undeleted: &[Recovered], carved: &[Carved]) -> Measurement {
+    let mut available: BTreeMap<&str, usize> = BTreeMap::new();
+    for r in undeleted {
+        *available.entry(r.sha256.as_str()).or_insert(0) += 1;
+    }
+    let carved_hashes: HashSet<&str> = carved.iter().map(|c| c.sha256.as_str()).collect();
 
     let mut m = Measurement {
         expected_intact: 0,
@@ -358,9 +446,30 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
         scan_hits: 0,
         undelete_recall: 0.0,
         scan_recall: 0.0,
+        recovered_paths: Vec::new(),
+        misplaced: 0,
+        unknown_carved: 0,
+        unknown_verified: 0,
+        unknown_verified_names: Vec::new(),
     };
     for f in &expected.files {
-        let hit = undeleted_hashes.contains(f.sha256.as_str());
+        let hit = match available.get_mut(f.sha256.as_str()) {
+            Some(n) if *n > 0 => {
+                *n -= 1;
+                true
+            }
+            _ => false,
+        };
+        if hit {
+            m.recovered_paths.push(f.path.clone());
+            // The file is back; is it under its own name?
+            let placed = undeleted
+                .iter()
+                .any(|r| r.sha256 == f.sha256 && same_name(&r.path, &f.path));
+            if !placed {
+                m.misplaced += 1;
+            }
+        }
         // A file that came back by name must also have its time back.
         if let (true, Some(want)) = (hit, f.mtime) {
             let got = undeleted
@@ -385,12 +494,28 @@ fn measure(image: &Path, expected: &Expected, work: &Path) -> Measurement {
             m.undelete_hits += hit as usize;
             if f.carvable {
                 m.expected_carvable += 1;
-                m.scan_hits += carved.contains(&f.sha256) as usize;
+                m.scan_hits += carved_hashes.contains(f.sha256.as_str()) as usize;
             }
         } else {
             m.undelete_maybe_hits += hit as usize;
         }
-        m.undelete_name_hits += name_matches(&f.path) as usize;
+        m.undelete_name_hits += undeleted.iter().any(|r| same_name(&r.path, &f.path)) as usize;
+    }
+    let known: HashSet<&str> = expected
+        .files
+        .iter()
+        .map(|f| f.sha256.as_str())
+        .chain(expected.live_hashes.iter().map(String::as_str))
+        .collect();
+    for c in carved {
+        if known.contains(c.sha256.as_str()) {
+            continue;
+        }
+        m.unknown_carved += 1;
+        if c.confidence == "verified" {
+            m.unknown_verified += 1;
+            m.unknown_verified_names.push(c.name.clone());
+        }
     }
     m.undelete_recall = ratio(m.undelete_hits, m.expected_intact);
     m.scan_recall = ratio(m.scan_hits, m.expected_carvable);
@@ -403,6 +528,16 @@ fn record_baseline(path: &Path, expected: &Expected, m: &Measurement) {
         let mut b = BTreeMap::new();
         b.insert("undelete".to_string(), Json::Num(round4(m.undelete_recall)));
         b.insert("scan".to_string(), Json::Num(round4(m.scan_recall)));
+        let mut paths = m.recovered_paths.clone();
+        paths.sort();
+        b.insert(
+            "recovered".to_string(),
+            Json::Arr(paths.into_iter().map(Json::Str).collect()),
+        );
+        b.insert(
+            "unknown_verified".to_string(),
+            Json::Num(m.unknown_verified as f64),
+        );
         map.insert("baseline".to_string(), Json::Obj(b));
     }
     fs::write(path, doc.to_pretty_string()).unwrap();
@@ -418,6 +553,146 @@ fn pct(x: f64) -> String {
 
 fn baseline_str(b: Option<f64>) -> String {
     b.map(pct).unwrap_or_else(|| "   -  ".to_string())
+}
+
+// --- the oracle, tested ---------------------------------------------------------------
+
+fn mock_expected(files: &[(&str, &str)], live: &[&str], recovered: &[&str]) -> Expected {
+    let files_json: Vec<String> = files
+        .iter()
+        .map(|(p, h)| {
+            format!(
+                r#"{{"path":"{p}","size":10,"sha256":"{h}","expect":"intact","carvable":true}}"#
+            )
+        })
+        .collect();
+    let live_json: Vec<String> = live
+        .iter()
+        .map(|h| format!(r#"{{"path":"live","size":10,"sha256":"{h}"}}"#))
+        .collect();
+    let rec_json: Vec<String> = recovered.iter().map(|p| format!("\"{p}\"")).collect();
+    let text = format!(
+        r#"{{"filesystem":"ext4","files":[{}],"live":[{}],"baseline":{{"undelete":1,"scan":1,"recovered":[{}],"unknown_verified":0}}}}"#,
+        files_json.join(","),
+        live_json.join(","),
+        rec_json.join(",")
+    );
+    let doc = json::parse(&text).unwrap();
+    let files = doc
+        .get("files")
+        .and_then(Json::as_array)
+        .unwrap()
+        .iter()
+        .map(|f| ExpectedFile {
+            path: str_field(f, "path").unwrap(),
+            sha256: str_field(f, "sha256").unwrap(),
+            mtime: None,
+            intact: true,
+            carvable: true,
+        })
+        .collect();
+    Expected {
+        live_hashes: live.iter().map(|h| h.to_string()).collect(),
+        baseline_undelete: Some(1.0),
+        baseline_scan: Some(1.0),
+        baseline_recovered: recovered.iter().map(|p| p.to_string()).collect(),
+        baseline_unknown_verified: Some(0),
+        filesystem: "ext4".to_string(),
+        doc,
+        files,
+    }
+}
+
+fn rec(path: &str, sha: &str) -> Recovered {
+    Recovered {
+        path: path.to_string(),
+        sha256: sha.to_string(),
+        mtime: None,
+    }
+}
+
+fn carved(name: &str, sha: &str, grade: &str) -> Carved {
+    Carved {
+        name: name.to_string(),
+        sha256: sha.to_string(),
+        confidence: grade.to_string(),
+    }
+}
+
+/// The oracle itself: fed mock trees, it must notice a swap, must not count
+/// one recovered copy against two expected files with the same hash, and
+/// must count a verified carve that matches nothing known while ignoring
+/// one that matches a live file. No images needed.
+#[test]
+fn oracle_catches_swaps_duplicate_hashes_and_stray_verified_carves() {
+    // Two deleted files come back with each other's bytes: recall by hash
+    // is still 2/2, but both are misplaced.
+    // (Names that differ in more than their first character: FAT loses that
+    // one to the deletion marker, and the name rule allows for it.)
+    let e = mock_expected(
+        &[("alpha.txt", "aa"), ("bravo.txt", "bb")],
+        &[],
+        &["alpha.txt", "bravo.txt"],
+    );
+    let m = assess(&e, &[rec("alpha.txt", "bb"), rec("bravo.txt", "aa")], &[]);
+    assert_eq!(m.undelete_hits, 2);
+    assert_eq!(m.misplaced, 2, "a swap is a misplacement of both");
+    let m = assess(&e, &[rec("alpha.txt", "aa"), rec("bravo.txt", "bb")], &[]);
+    assert_eq!(m.misplaced, 0);
+    assert_eq!(m.recovered_paths, vec!["alpha.txt", "bravo.txt"]);
+
+    // Two expected files with one hash and a single recovered copy: one hit,
+    // not two, and the second path counts as not recovered.
+    let e = mock_expected(
+        &[("alpha.txt", "same"), ("bravo.txt", "same")],
+        &[],
+        &["alpha.txt", "bravo.txt"],
+    );
+    let m = assess(&e, &[rec("alpha.txt", "same")], &[]);
+    assert_eq!(m.undelete_hits, 1, "one copy cannot satisfy two files");
+    assert_eq!(m.recovered_paths, vec!["alpha.txt"]);
+    assert!(m.undelete_recall < 1.0);
+
+    // A verified carve matching nothing known is a stray; one matching a
+    // live file is not; a plausible stray is counted but not as verified.
+    let e = mock_expected(&[("a.jpg", "aa")], &["ll"], &["a.jpg"]);
+    let m = assess(
+        &e,
+        &[rec("a.jpg", "aa")],
+        &[
+            carved("0.jpg", "aa", "verified"),
+            carved("1.jpg", "ll", "verified"),
+            carved("2.jpg", "xx", "verified"),
+            carved("3.jpg", "yy", "plausible"),
+        ],
+    );
+    assert_eq!(m.scan_hits, 1);
+    assert_eq!(m.unknown_carved, 2);
+    assert_eq!(m.unknown_verified, 1);
+    assert_eq!(m.unknown_verified_names, vec!["2.jpg"]);
+}
+
+/// The scan manifest reader takes the CSV `scan --report` writes.
+#[test]
+fn scan_manifest_rows_are_read_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("scan.csv");
+    fs::write(
+        &p,
+        "name,type,offset,size,sha256,confidence\n00000000_0x1000.jpg,jpg,4096,10,abcd,verified\njpg/x.png,png,8192,5,ef01,plausible\n",
+    )
+    .unwrap();
+    let rows = read_scan_manifest(&p);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (
+            rows[0].name.as_str(),
+            rows[0].sha256.as_str(),
+            rows[0].confidence.as_str()
+        ),
+        ("00000000_0x1000.jpg", "abcd", "verified")
+    );
+    assert_eq!(rows[1].name, "jpg/x.png");
 }
 
 // --- the test -------------------------------------------------------------------------
@@ -495,6 +770,46 @@ fn corpus_recall() {
         let mut notes = Vec::new();
         if m.times_checked > 0 {
             notes.push(format!("times {}/{}", m.times_right, m.times_checked));
+        }
+        if m.misplaced > 0 {
+            notes.push(format!("{} back under another name", m.misplaced));
+        }
+        if m.unknown_carved > 0 {
+            notes.push(format!(
+                "{} carved file(s) match nothing known ({} verified)",
+                m.unknown_carved, m.unknown_verified
+            ));
+        }
+        // Per-file identity: a path that came back last time must still
+        // come back, whatever the ratio says.
+        let mut lost: Vec<&String> = expected
+            .baseline_recovered
+            .iter()
+            .filter(|p| !m.recovered_paths.contains(p))
+            .collect();
+        lost.sort();
+        if !record && !lost.is_empty() {
+            failures.push(format!(
+                "{}: previously recovered file(s) missing: {}",
+                entry.name,
+                lost.iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        // Precision: strays the carver vouches for must not multiply.
+        if !record {
+            if let Some(floor) = expected.baseline_unknown_verified {
+                if m.unknown_verified as u64 > floor {
+                    failures.push(format!(
+                        "{}: {} carved file(s) graded verified match nothing known (baseline {floor}): {}",
+                        entry.name,
+                        m.unknown_verified,
+                        m.unknown_verified_names.join(", ")
+                    ));
+                }
+            }
         }
         if m.undelete_maybe_hits > 0 {
             notes.push(format!(

@@ -25,10 +25,13 @@ use unearth::json::{self, Json};
 
 const USAGE: &str = "\
 usage:
-  corpus_tool plan <scenario> <stage-dir> <plan-file> [--volume-size BYTES] [--seed N]
+  corpus_tool plan <scenario> <stage-dir> <plan-file> [--volume-size BYTES] [--seed N] \\
+      [--plan-version N]
   corpus_tool scenarios
   corpus_tool expect --stage DIR --plan FILE --image FILE --name NAME \\
-      --filesystem FS --platform OS --source TEXT --scenario NAME --out FILE
+      --filesystem FS --platform OS --source TEXT --scenario NAME --out FILE \\
+      [--extents FILE]
+  corpus_tool live --expected FILE [--seed N] [--volume-size BYTES]
   corpus_tool lock --expected DIR --out FILE [--release TAG] \\
       [--tarball-name NAME --tarball-url URL --tarball-sha256 HEX]
   corpus_tool sha256 <file>
@@ -40,7 +43,13 @@ The plan file lists one operation per line, tab-separated:
   rmdir\t<relative path>             remove a (now empty) directory
   sync                               flush the volume to disk
 `intact` means the file's data is expected to survive on disk; `maybe` means the
-scenario deliberately overwrites it, so recovery is best-effort.";
+scenario deliberately overwrites it, so recovery is best-effort.
+`--extents` names a file of `<path>\t<extent count>` lines, one per deleted
+file, as the recipe recorded it before the delete (Linux: filefrag).
+`live` regenerates an image's staged files from its scenario and seed and adds
+the files that were still present at the end of the plan (path, size, SHA-256)
+to its expected file, so a carve that matches no deleted file can be told from
+one that matches a live file.";
 
 type Res<T> = Result<T, String>;
 
@@ -55,6 +64,7 @@ fn main() {
             Ok(())
         }
         Some("expect") => cmd_expect(&args[1..]),
+        Some("live") => cmd_live(&args[1..]),
         Some("lock") => cmd_lock(&args[1..]),
         Some("sha256") => cmd_sha256(&args[1..]),
         _ => {
@@ -426,7 +436,13 @@ fn odd_size(rng: &mut Rng, lo: usize, hi: usize) -> usize {
     s | 1
 }
 
-fn scenario(name: &str, volume_size: u64, seed: u64) -> Res<Plan> {
+/// The scenario definitions change over time; an image records the version
+/// it was built from, so its staged files can be regenerated later. Version
+/// 1 is the first corpus build. Version 2 overfills the `fragmented` volume
+/// and adds the small control file deleted last.
+const PLAN_VERSION: u32 = 2;
+
+fn scenario(name: &str, volume_size: u64, seed: u64, version: u32) -> Res<Plan> {
     let mut rng = Rng::new(seed);
     let mut p = Plan::new();
     let kinds = [
@@ -590,7 +606,17 @@ fn scenario(name: &str, volume_size: u64, seed: u64) -> Res<Plan> {
             // to fragment, on every allocator. Deleting those is the real
             // test; a contiguous keeper is deleted too as a control.
             let pair = MB;
-            let pairs = (volume_size as usize) * 97 / 100 / (2 * pair);
+            // More pairs than the volume can hold: `fill` tolerates the
+            // copies that fail, and only a volume packed to the brim forces
+            // the big files into the gaps. Version 1 stopped at 97 percent,
+            // which left XFS (512 MiB, with room to spare) a contiguous
+            // tail: that build's "fragmented" XFS image had one extent per
+            // file.
+            let pairs = if version >= 2 {
+                (volume_size as usize) / (2 * pair) + 2
+            } else {
+                (volume_size as usize) * 97 / 100 / (2 * pair)
+            };
             for i in 0..pairs {
                 p.fill(&format!("spacer-{i:02}.bin"), Kind::Bin, pair - 4096 + 511);
                 let k = if i % 2 == 0 { Kind::Jpg } else { Kind::Png };
@@ -605,10 +631,24 @@ fn scenario(name: &str, volume_size: u64, seed: u64) -> Res<Plan> {
             p.add("big-1.pdf", Kind::Pdf, 4 * MB + 5);
             p.add("big-2.png", Kind::Png, 5 * MB + 7);
             p.sync();
+            // A small file written after the big ones lands in a gap past
+            // their last fragments, so no fragmented file's carve can swallow
+            // it (a fragmented file's footer search runs to its last
+            // fragment and takes everything between). Deleted last, it is
+            // the one file scan is expected to bring back whole here, which
+            // keeps the scan floor above zero. `keep-03.png` sits among the
+            // big files' fragments and is only a control for undelete.
+            if version >= 2 {
+                p.add("last-small.jpg", Kind::Jpg, 200 * KB + 1);
+                p.sync();
+            }
             p.delete("big-0.jpg", Expect::Intact);
             p.delete("big-1.pdf", Expect::Intact);
             p.delete("big-2.png", Expect::Intact);
             p.delete("keep-03.png", Expect::Intact);
+            if version >= 2 {
+                p.delete("last-small.jpg", Expect::Intact);
+            }
             p.sync();
         }
         "nearlyfull" => {
@@ -688,7 +728,12 @@ fn cmd_plan(args: &[String]) -> Res<()> {
         .map(|s| s.parse().map_err(|_| "bad --seed".to_string()))
         .transpose()?
         .unwrap_or(1);
-    let plan = scenario(&pos[0], volume_size, seed)?;
+    let version: u32 = opts
+        .get("plan-version")
+        .map(|s| s.parse().map_err(|_| "bad --plan-version".to_string()))
+        .transpose()?
+        .unwrap_or(PLAN_VERSION);
+    let plan = scenario(&pos[0], volume_size, seed, version)?;
     let stage = Path::new(&pos[1]);
     fs::create_dir_all(stage).map_err(|e| format!("creating {}: {e}", stage.display()))?;
     let mut total = 0usize;
@@ -715,7 +760,7 @@ fn cmd_plan(args: &[String]) -> Res<()> {
             .map_err(|e| format!("setting mtime on {}: {e}", dst.display()))?;
         total += data.len();
     }
-    let mut text = String::new();
+    let mut text = format!("# plan-version {version}\n");
     for op in &plan.ops {
         match op {
             Op::Copy(p) => text.push_str(&format!("copy\t{p}\n")),
@@ -742,6 +787,15 @@ fn cmd_plan(args: &[String]) -> Res<()> {
 /// FAT's 2-second resolution, and far from any build or test date.
 fn stage_mtime(i: usize) -> u64 {
     1_710_496_800 + i as u64 * 61
+}
+
+/// The plan version a plan file was written with (its `# plan-version N`
+/// header); 1 for a plan from before the header existed.
+fn plan_version_of(text: &str) -> u32 {
+    text.lines()
+        .find_map(|l| l.strip_prefix("# plan-version "))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(1)
 }
 
 fn read_plan(path: &Path) -> Res<Vec<Op>> {
@@ -805,10 +859,28 @@ fn n(v: u64) -> Json {
 fn cmd_expect(args: &[String]) -> Res<()> {
     let (_, o) = parse_args(args);
     let stage = Path::new(need(&o, "stage")?);
-    let ops = read_plan(Path::new(need(&o, "plan")?))?;
+    let plan_path = Path::new(need(&o, "plan")?);
+    let ops = read_plan(plan_path)?;
+    let plan_version = plan_version_of(
+        &fs::read_to_string(plan_path)
+            .map_err(|e| format!("reading {}: {e}", plan_path.display()))?,
+    );
     let image = Path::new(need(&o, "image")?);
     let name = need(&o, "name")?;
     let out = need(&o, "out")?;
+    // Extent counts the recipe recorded before each delete, when the
+    // platform can report them.
+    let extents: BTreeMap<String, u64> = match o.get("extents") {
+        Some(path) => fs::read_to_string(path)
+            .map_err(|e| format!("reading {path}: {e}"))?
+            .lines()
+            .filter_map(|l| {
+                let (p, n) = l.split_once('\t')?;
+                Some((p.to_string(), n.trim().parse().ok()?))
+            })
+            .collect(),
+        None => BTreeMap::new(),
+    };
 
     // Replay the plan: a file counts as deleted if its last operation was a
     // delete (a re-copy after a delete makes it live again).
@@ -844,14 +916,18 @@ fn cmd_expect(args: &[String]) -> Res<()> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .ok_or_else(|| format!("reading mtime of {}", staged.display()))?;
-        files.push(obj(vec![
+        let mut entry = vec![
             ("path", s(path)),
             ("size", n(size)),
             ("sha256", s(&sha)),
             ("mtime", n(mtime)),
             ("expect", s(expect.as_str())),
             ("carvable", Json::Bool(carvable)),
-        ]));
+        ];
+        if let Some(count) = extents.get(path) {
+            entry.push(("extents", n(*count)));
+        }
+        files.push(obj(entry));
     }
     if files.is_empty() {
         return Err("plan deletes nothing".to_string());
@@ -875,6 +951,7 @@ fn cmd_expect(args: &[String]) -> Res<()> {
         ("platform", s(need(&o, "platform")?)),
         ("source", s(need(&o, "source")?)),
         ("scenario", s(need(&o, "scenario")?)),
+        ("plan_version", n(plan_version as u64)),
         (
             "image",
             obj(vec![
@@ -894,6 +971,107 @@ fn cmd_expect(args: &[String]) -> Res<()> {
         "wrote {out} ({} deleted files, {live} live)",
         state.len() as u64 - live
     );
+    Ok(())
+}
+
+/// Regenerate an image's staged files in memory from its scenario and seed,
+/// check the deleted files still hash as recorded (so the regeneration is
+/// the one the image was built from), and record the files that were live at
+/// the end of the plan under `live`.
+fn cmd_live(args: &[String]) -> Res<()> {
+    let (_, o) = parse_args(args);
+    let path = need(&o, "expected")?;
+    let text = fs::read_to_string(path).map_err(|e| format!("reading {path}: {e}"))?;
+    let doc = json::parse(&text).map_err(|e| format!("{path}: {e}"))?;
+    let scenario_name = doc
+        .get("scenario")
+        .and_then(Json::as_str)
+        .ok_or("expected file has no scenario")?
+        .to_string();
+    let filesystem = doc
+        .get("filesystem")
+        .and_then(Json::as_str)
+        .unwrap_or("")
+        .to_string();
+    let seed: u64 = o
+        .get("seed")
+        .map(|s| s.parse().map_err(|_| "bad --seed".to_string()))
+        .transpose()?
+        .unwrap_or(1);
+    // The recipes build 64 MiB volumes, except XFS, which refuses anything
+    // under 300 MB and gets 512 MiB.
+    let default_size = if filesystem == "xfs" {
+        512 * MB as u64
+    } else {
+        64 * MB as u64
+    };
+    let volume_size: u64 = o
+        .get("volume-size")
+        .map(|s| s.parse().map_err(|_| "bad --volume-size".to_string()))
+        .transpose()?
+        .unwrap_or(default_size);
+    // An expected file from before plan versions existed came from version 1.
+    let plan_version = doc.get("plan_version").and_then(Json::as_u64).unwrap_or(1) as u32;
+    let plan = scenario(&scenario_name, volume_size, seed, plan_version)?;
+
+    let mut state: BTreeMap<String, Option<Expect>> = BTreeMap::new();
+    for op in &plan.ops {
+        match op {
+            Op::Copy(p) | Op::Fill(p) => {
+                state.insert(p.clone(), None);
+            }
+            Op::Delete(p, e) => {
+                state.insert(p.clone(), Some(*e));
+            }
+            Op::Rmdir(_) | Op::Sync => {}
+        }
+    }
+    let mut hashes: BTreeMap<String, (u64, String)> = BTreeMap::new();
+    for (i, (p, kind, size)) in plan.files.iter().enumerate() {
+        let file_seed = seed
+            .wrapping_mul(1_000_003)
+            .wrapping_add(i as u64 + 1)
+            .wrapping_mul(0x2545_F491_4F6C_DD1D);
+        let data = make_file(*kind, *size, file_seed);
+        hashes.insert(
+            p.clone(),
+            (data.len() as u64, hash::to_hex(&hash::digest(&data))),
+        );
+    }
+    // The recorded deleted files must be the regenerated ones.
+    for f in doc.get("files").and_then(Json::as_array).unwrap_or(&[]) {
+        let p = f.get("path").and_then(Json::as_str).unwrap_or("");
+        let want = f.get("sha256").and_then(Json::as_str).unwrap_or("");
+        match hashes.get(p) {
+            Some((_, got)) if got == want => {}
+            Some(_) => {
+                let why = "does not hash as recorded; wrong seed or volume size?";
+                return Err(format!("{path}: regenerated '{p}' {why}"));
+            }
+            None => return Err(format!("{path}: '{p}' is not in the regenerated plan")),
+        }
+    }
+    let mut live = Vec::new();
+    for (p, st) in &state {
+        if st.is_none() {
+            let (size, sha) = &hashes[p];
+            live.push(obj(vec![
+                ("path", s(p)),
+                ("size", n(*size)),
+                ("sha256", s(sha)),
+            ]));
+        }
+    }
+    let count = live.len();
+    let Json::Obj(mut map) = doc else {
+        return Err(format!("{path}: not an object"));
+    };
+    map.insert("live".to_string(), Json::Arr(live));
+    map.entry("plan_version".to_string())
+        .or_insert(n(plan_version as u64));
+    fs::write(path, Json::Obj(map).to_pretty_string())
+        .map_err(|e| format!("writing {path}: {e}"))?;
+    eprintln!("{path}: recorded {count} live files");
     Ok(())
 }
 

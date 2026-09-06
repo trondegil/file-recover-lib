@@ -1,7 +1,17 @@
 {
   "baseline": {
+    "recovered": [
+      "DCIM/IMG_1001.jpg",
+      "DCIM/IMG_1004.jpg",
+      "DCIM/IMG_1007.jpg",
+      "audio/take1.wav",
+      "docs/report-2023.pdf",
+      "docs/todo.txt",
+      "tiny.txt"
+    ],
     "scan": 1,
-    "undelete": 1
+    "undelete": 1,
+    "unknown_verified": 0
   },
   "files": [
     {
@@ -67,8 +77,76 @@
     "sha256": "b59ab7508b0306b86fda36a40d5a4b0fb7ba475abedb02d5ed9373d7b2516823",
     "size": 67108864
   },
+  "live": [
+    {
+      "path": "DCIM/IMG_1000.jpg",
+      "sha256": "a36110200469150296265431cb577cc29ea39dd9abde20916fadeaf05f5ed47f",
+      "size": 426937
+    },
+    {
+      "path": "DCIM/IMG_1002.png",
+      "sha256": "e6ae33eb235637de88fdd409fb349ac1b028f153f699a97045457562525ee820",
+      "size": 1087927
+    },
+    {
+      "path": "DCIM/IMG_1003.jpg",
+      "sha256": "6ca2a46f4b7dafd2abbbbf134f4a757e4a38990ab36fb03807dd366d67e39b03",
+      "size": 874863
+    },
+    {
+      "path": "DCIM/IMG_1005.png",
+      "sha256": "e4354f11a8f64def38595ceae0f759ecebfc9c7f0042717ed3a05320decd380e",
+      "size": 230239
+    },
+    {
+      "path": "DCIM/IMG_1006.jpg",
+      "sha256": "cf80a039a1e713504f6c80804af95d55b65f337ccb8c738984dcbd914700c1a3",
+      "size": 1153333
+    },
+    {
+      "path": "audio/take2.wav",
+      "sha256": "c339ac6a486c8eb6e77ab49dbcccecca2cf5a6dd3d0aab262acaffb79af33580",
+      "size": 766779
+    },
+    {
+      "path": "banner.bmp",
+      "sha256": "e193cca146f892599b653785e0406288107ee33118cb3b11b270e2c03183473b",
+      "size": 169077
+    },
+    {
+      "path": "docs/notes.txt",
+      "sha256": "5b9de4baa8eaee91c9a5bbd9778ebcefc9cf24293ef815ead1d9891eefea3fd0",
+      "size": 9339
+    },
+    {
+      "path": "docs/report-2021.pdf",
+      "sha256": "5c7d898395b93e37814af574cbb386f915a4dbeeda53ec9b17b6cd3a1a8d179a",
+      "size": 77889
+    },
+    {
+      "path": "docs/report-2022.pdf",
+      "sha256": "277ccb4430f3881b18386a7dab266863ba76138a03d01d3e7bc21a8d7b0eebd9",
+      "size": 257627
+    },
+    {
+      "path": "docs/report-2024.pdf",
+      "sha256": "4e18dc2ae2a7cf80f2ae740d9757d3c3e590b5cf6c27308b94c4222dda355fd6",
+      "size": 325153
+    },
+    {
+      "path": "firmware.bin",
+      "sha256": "6683150fc58b3f00577baad747d0b14839df95860cbd83872261a0953a01a6c2",
+      "size": 345523
+    },
+    {
+      "path": "logo.bmp",
+      "sha256": "921c1b61cc82d7b828bbb12cedc94f0603ff3b49617c177bdf19d7b9d4600d57",
+      "size": 266533
+    }
+  ],
   "live_files": 13,
   "name": "linux-ext4-baseline",
+  "plan_version": 1,
   "platform": "linux",
   "scenario": "baseline",
   "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"

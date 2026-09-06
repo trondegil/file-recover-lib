@@ -1,7 +1,25 @@
 {
   "baseline": {
+    "recovered": [
+      "big-0.jpg",
+      "big-1.pdf",
+      "big-2.png",
+      "keep-03.png",
+      "spacer-03.bin",
+      "spacer-04.bin",
+      "spacer-05.bin",
+      "spacer-06.bin",
+      "spacer-07.bin",
+      "spacer-08.bin",
+      "spacer-09.bin",
+      "spacer-10.bin",
+      "spacer-16.bin",
+      "spacer-17.bin",
+      "spacer-21.bin"
+    ],
     "scan": 0,
-    "undelete": 1
+    "undelete": 1,
+    "unknown_verified": 2
   },
   "files": [
     {
@@ -291,8 +309,161 @@
     "sha256": "ec2a195287fcc53e82ab256f70a038a4aaa675069f215110ffbcc5a23dd46a8e",
     "size": 67108864
   },
+  "live": [
+    {
+      "path": "keep-00.jpg",
+      "sha256": "6afe963b7d220895733bbb11c3a2fd713cf14196ff2e4ecd80a65c96a1c23d63",
+      "size": 1044481
+    },
+    {
+      "path": "keep-01.png",
+      "sha256": "27f0117b5a518d75bdb46699bcfa2aa009e59aad2ec2f93ea1239285610eae61",
+      "size": 1044481
+    },
+    {
+      "path": "keep-02.jpg",
+      "sha256": "af1dc3ab3320eb0a4918e31e8ec585f40a5bb7e27caff258d6611af91450faa7",
+      "size": 1044481
+    },
+    {
+      "path": "keep-04.jpg",
+      "sha256": "c4bac556c2e83e1afc05aa4101915896b201516147bb400d2a9bad4362414297",
+      "size": 1044481
+    },
+    {
+      "path": "keep-05.png",
+      "sha256": "807b41cebf1410a010e3879d0858153094a743129132be34ba337b3dc9e2ad4b",
+      "size": 1044481
+    },
+    {
+      "path": "keep-06.jpg",
+      "sha256": "80de2e6ef7afcfbd90d2c0989850d20d05b153f9635673a61661d9ba70d3b9a4",
+      "size": 1044481
+    },
+    {
+      "path": "keep-07.png",
+      "sha256": "14c34d3a8f2df3ea890142093d6df5d0638726e863bc6c0b3b460318fff8b194",
+      "size": 1044481
+    },
+    {
+      "path": "keep-08.jpg",
+      "sha256": "a933b4957637972a2b150f14667c4833f07c2ed4f7d3b20fcbb935a23acb5c01",
+      "size": 1044481
+    },
+    {
+      "path": "keep-09.png",
+      "sha256": "5b5bbb8c2ba5ce2a70fcd39aac5c13f113907dc9edcecc784317ff37ad9b0bc5",
+      "size": 1044481
+    },
+    {
+      "path": "keep-10.jpg",
+      "sha256": "99460df828bfc9f445c78273010d9c0926df60c19bd11726e70402ea16c3b82c",
+      "size": 1044481
+    },
+    {
+      "path": "keep-11.png",
+      "sha256": "e8558aacb06ad755d6f6664e9ed81e5d64fcbf6450ce9fa284409cb5f2b396a4",
+      "size": 1044481
+    },
+    {
+      "path": "keep-12.jpg",
+      "sha256": "27f2b78472ce759a99f35f410cebae776b05d0e9f17db130037ea7d879635d3b",
+      "size": 1044481
+    },
+    {
+      "path": "keep-13.png",
+      "sha256": "2e8e0ed3c07ccf90f65c50e3b1f60d6d17c358f184f65922108fa25205dc1368",
+      "size": 1044481
+    },
+    {
+      "path": "keep-14.jpg",
+      "sha256": "0cad8c29419b352b0a6f4068f829b9b9da1329ed000ab7f68312b861f7257415",
+      "size": 1044481
+    },
+    {
+      "path": "keep-15.png",
+      "sha256": "cd892cb4257ee1b8f752f2252d719e7a778c9bdc9ddbbfa5700346c86d391f78",
+      "size": 1044481
+    },
+    {
+      "path": "keep-16.jpg",
+      "sha256": "ec8c659e343372589f62d4b94cf6cdd31ce293010dbc1a6d07f8d1cf074d3cda",
+      "size": 1044481
+    },
+    {
+      "path": "keep-17.png",
+      "sha256": "f1598bb225ad0bd8eb1fadeecba561d2b9373ffcbbe6c5e0ae16d35ed91bbeca",
+      "size": 1044481
+    },
+    {
+      "path": "keep-18.jpg",
+      "sha256": "eddc3314014da01e610b6fc07fcdefb60582ef3c15b9a62c866abdb2c667f5bc",
+      "size": 1044481
+    },
+    {
+      "path": "keep-19.png",
+      "sha256": "9d0c665953f50b0fda4e889b0bd2d839d9b00a9ef4e43c315dcf60dc1a3a2376",
+      "size": 1044481
+    },
+    {
+      "path": "keep-20.jpg",
+      "sha256": "cccbfaed40a02d912620312decd61fab444b01328d6c1092b261be440e2ff5b8",
+      "size": 1044481
+    },
+    {
+      "path": "keep-21.png",
+      "sha256": "d79ff11578c0bd4c081b698d6bf64fbddf32650543607e9032740348ab5eea4b",
+      "size": 1044481
+    },
+    {
+      "path": "keep-22.jpg",
+      "sha256": "77258cf572939c5a764b0803607c9074e40efdf8b7f7c2f9b1a48bc0319f389b",
+      "size": 1044481
+    },
+    {
+      "path": "keep-23.png",
+      "sha256": "39d83fecfbc8989d51630b5b2f5cba2a43e1863bdfea881eefb827276564f9bd",
+      "size": 1044481
+    },
+    {
+      "path": "keep-24.jpg",
+      "sha256": "804b37196a75a3619fcbca42f343ce388dbda22a5fd8920c3f3b3cb2420f3c1b",
+      "size": 1044481
+    },
+    {
+      "path": "keep-25.png",
+      "sha256": "2cc22ce99b3fa4afa5035efcf80b7b807ca22a4013f1bdde82482e1d86f7c9ff",
+      "size": 1044481
+    },
+    {
+      "path": "keep-26.jpg",
+      "sha256": "311960ed5f2183ede8ba240b920ae6e571209eaef999e1a5bf6b348614720593",
+      "size": 1044481
+    },
+    {
+      "path": "keep-27.png",
+      "sha256": "e07f158b09f264edec3a8ffe132919b703a46a4a86614f0b0d8510ff0c483ff7",
+      "size": 1044481
+    },
+    {
+      "path": "keep-28.jpg",
+      "sha256": "6169cf2e959d96e67ba5d0aa087c84d75a567eb9b9b6ce5664b8db70c4a7f436",
+      "size": 1044481
+    },
+    {
+      "path": "keep-29.png",
+      "sha256": "20520b2c52f7390e69e8b4727444facc3412a3a9171b09f67898f6d9b6b6273a",
+      "size": 1044481
+    },
+    {
+      "path": "keep-30.jpg",
+      "sha256": "6ab8b19020057f946115de4e265357a7a25c3e1331e83c3357a47fede474c526",
+      "size": 1044481
+    }
+  ],
   "live_files": 30,
   "name": "linux-ext4-fragmented",
+  "plan_version": 1,
   "platform": "linux",
   "scenario": "fragmented",
   "source": "Linux 7.0.12-linuxkit mke2fs 1.47.0 (5-Feb-2023)"

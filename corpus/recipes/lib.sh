@@ -11,12 +11,13 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CORPUS="$REPO/corpus"
 IMAGES="${CORPUS_IMAGES:-$CORPUS/images}"
 WORK="${CORPUS_WORK:-$CORPUS/work}"
+EXPECTED="${CORPUS_EXPECTED:-$CORPUS/expected}"   # a scratch tree keeps a trial build out of git
 VOLUME_SIZE="${CORPUS_VOLUME_SIZE:-67108864}"   # 64 MiB: the smallest FAT32 macOS will make
 SEED="${CORPUS_SEED:-1}"
 SCENARIOS="${CORPUS_SCENARIOS:-}"
 ONLY="${CORPUS_ONLY:-}"                          # substring filter on image names
 
-mkdir -p "$IMAGES" "$WORK" "$CORPUS/expected"
+mkdir -p "$IMAGES" "$WORK" "$EXPECTED"
 
 # Build (once) and locate the corpus_tool helper.
 tool() {
@@ -60,6 +61,12 @@ apply_plan() {
                 fi
                 ;;
             delete)
+                # Record how the file lay on disk before it goes, where the
+                # platform can say (Linux: filefrag), so "fragmented" is a
+                # fact in the expected file rather than an intent.
+                if [ -e "$mnt/$path" ]; then
+                    fs_extents "$mnt/$path" "$path" >> "$EXTENTS" || true
+                fi
                 if [ "$expect" = maybe ]; then
                     rm -f "$mnt/$path"   # a fill that did not fit is not there
                 else
@@ -78,10 +85,17 @@ apply_plan() {
     done < "$plan"
 }
 
+# Extent count of a file on the mounted volume, as `<path>\t<count>`, or
+# nothing when the platform cannot say. Platform recipes override this.
+fs_extents() {
+    :
+}
+
 # Build one image. $1 = image name, $2 = filesystem label for the manifest,
 # $3 = scenario, $4 = human description of the tool that formatted it.
 # Relies on the platform recipe defining fs_format (image, fs -> mounts it and
-# sets MNT), fs_sync (mount point), and fs_release (unmount + detach).
+# sets MNT), fs_sync (mount point), and fs_release (unmount + detach), and
+# optionally fs_extents (file, relative path -> "<path>\t<extents>").
 build_one() {
     local name="$1" fs="$2" scenario="$3" source="$4"
     if [ -n "$ONLY" ] && [[ "$name" != *"$ONLY"* ]]; then
@@ -89,9 +103,11 @@ build_one() {
     fi
     local img="$IMAGES/$name.img"
     local stage="$WORK/$name/stage" plan="$WORK/$name/plan.txt"
+    EXTENTS="$WORK/$name/extents.txt"
     echo "== $name"
     rm -rf "$WORK/$name"
     mkdir -p "$WORK/$name"
+    : > "$EXTENTS"
     tool plan "$scenario" "$stage" "$plan" --volume-size "$VOLUME_SIZE" --seed "$SEED"
 
     rm -f "$img"
@@ -104,11 +120,19 @@ build_one() {
     fs_release
     trap - EXIT
 
-    tool expect --stage "$stage" --plan "$plan" --image "$img" --name "$name" \
-        --filesystem "$fs" --platform "$PLATFORM" --source "$source" \
-        --scenario "$scenario" --out "$CORPUS/expected/$name.json"
+    # (`set -u` and an empty array do not mix on older bash, hence the two calls.)
+    if [ -s "$EXTENTS" ]; then
+        tool expect --stage "$stage" --plan "$plan" --image "$img" --name "$name" \
+            --filesystem "$fs" --platform "$PLATFORM" --source "$source" \
+            --scenario "$scenario" --out "$EXPECTED/$name.json" --extents "$EXTENTS"
+    else
+        tool expect --stage "$stage" --plan "$plan" --image "$img" --name "$name" \
+            --filesystem "$fs" --platform "$PLATFORM" --source "$source" \
+            --scenario "$scenario" --out "$EXPECTED/$name.json"
+    fi
+    tool live --expected "$EXPECTED/$name.json" --seed "$SEED" --volume-size "$VOLUME_SIZE"
 }
 
 write_lock() {
-    tool lock --expected "$CORPUS/expected" --out "$CORPUS/corpus.lock"
+    tool lock --expected "$EXPECTED" --out "${CORPUS_LOCK:-$CORPUS/corpus.lock}"
 }

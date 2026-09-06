@@ -31,6 +31,29 @@ ARCHITECTURE.md):
 - Bound allocations by real limits; never trust an on-disk length as a `Vec`
   capacity.
 
+## Commit messages
+
+Releases are automated, and the automation reads the commits. release-please
+parses the subject of every commit **inside** a pull request (merge-commit
+subjects are ignored) and builds the next version and its changelog section
+from them, so a subject that does not parse is a change no user will ever read
+about. CI checks this on every pull request.
+
+Write each subject as `type(scope)?: description`, with the type from this
+list:
+
+| Type | Effect on the next release |
+|---|---|
+| `fix`, `perf` | patch bump, entry in the changelog |
+| `feat` | minor bump, entry in the changelog |
+| any of the above with `!`, or a `BREAKING CHANGE:` footer | major bump |
+| `docs`, `test`, `ci`, `build`, `chore`, `refactor`, `style`, `revert`, `corpus` | no release on their own |
+
+The scope is optional and names the area, not the type: `fix(carver): …`,
+not `carver: …`. A bug a user could have hit needs `fix:`, however small the
+diff; that is what puts it in the release notes. See
+[RELEASING.md](RELEASING.md) for the rest of the release flow.
+
 ## Adding a file-type signature (carving)
 
 Carving recognises a file by a **magic** at its start, then computes its length

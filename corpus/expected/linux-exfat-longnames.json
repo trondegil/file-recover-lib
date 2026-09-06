@@ -1,7 +1,15 @@
 {
   "baseline": {
+    "recovered": [
+      "a-very-long-file-name-that-keeps-going-and-going-0-a-very-lo-0.jpg",
+      "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going--2.bmp",
+      "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-n-4.wav",
+      "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-2-a-very-long-file-name-that--8.pdf",
+      "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-6.png"
+    ],
     "scan": 1,
-    "undelete": 1
+    "undelete": 1,
+    "unknown_verified": 0
   },
   "files": [
     {
@@ -51,8 +59,36 @@
     "sha256": "b448e0ad12714b9621cb0f2e3d157af800fc2d1c22e62ee3c275ab8b1290775f",
     "size": 67108864
   },
+  "live": [
+    {
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-th-1.png",
+      "sha256": "0a787d910a2cc46ff3627ada1c8f134cc678b61ea33beac08cb174ea71f91546",
+      "size": 171781
+    },
+    {
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-v-3.pdf",
+      "sha256": "6b2b553c3b6a541f08555ce54a318e8256a701c0530d717495596d04e313795f",
+      "size": 209541
+    },
+    {
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps--5.jpg",
+      "sha256": "11c6d3408082f502675d9c72bbf70050bbdeccff48230799cfa74370acb7856e",
+      "size": 299041
+    },
+    {
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-2-a-very-long--7.bmp",
+      "sha256": "c3fa4763172c304ff6900b81b615e9c36f907d92a71eddc67e2120c291fd0253",
+      "size": 408223
+    },
+    {
+      "path": "a-very-long-file-name-that-keeps-going-and-going-0-a-very-long-file-name-that-keeps-going-and-going-1-a-very-long-file-name-that-keeps-going-and-going-2-a-very-long-file-name-that-keeps-going-and-9.wav",
+      "sha256": "832f3abdaeb8d2b90f4ab197e80e7def85aa5181723ac43caf94e414517410f3",
+      "size": 129715
+    }
+  ],
   "live_files": 5,
   "name": "linux-exfat-longnames",
+  "plan_version": 1,
   "platform": "linux",
   "scenario": "longnames",
   "source": "Linux 7.0.12-linuxkit exfatprogs version : 1.2.0"
