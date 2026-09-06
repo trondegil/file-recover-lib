@@ -254,11 +254,19 @@ impl Volume {
         if first < 2 || first > self.max_valid_cluster() {
             return Ok(None);
         }
-        const MAX_BITMAP: u64 = 256 * 1024 * 1024;
-        let mut bitmap = vec![0u8; len.min(MAX_BITMAP) as usize];
+        let mut bitmap = vec![0u8; self.bitmap_bytes(len)];
         let n = src.read_at(self.cluster_offset(first), &mut bitmap)?;
         bitmap.truncate(n);
         Ok(Some(bitmap))
+    }
+
+    /// How much of the allocation bitmap to read: one bit per cluster, so
+    /// the volume's cluster count bounds it whatever length the directory
+    /// entry claims. A corrupt entry claiming exabytes must not become an
+    /// allocation (a 24 KiB fixture once cost 256 MiB of heap here).
+    fn bitmap_bytes(&self, claimed: u64) -> usize {
+        let need = (self.cluster_count as u64).div_ceil(8);
+        claimed.min(need) as usize
     }
 
     /// Whether the bitmap marks `cluster` allocated. Past the bitmap's end
@@ -300,8 +308,7 @@ impl Volume {
         }
 
         // The bitmap is a contiguous run in the cluster heap; read it directly.
-        const MAX_BITMAP: u64 = 256 * 1024 * 1024;
-        let mut bitmap = vec![0u8; len.min(MAX_BITMAP) as usize];
+        let mut bitmap = vec![0u8; self.bitmap_bytes(len)];
         let n = src.read_at(self.cluster_offset(first), &mut bitmap)?;
         bitmap.truncate(n);
 
@@ -833,6 +840,32 @@ mod tests {
         assert!(!items[1].deleted);
         assert!(items[1].is_dir);
         assert!(items[1].no_fat_chain);
+    }
+
+    /// The bitmap read is bounded by the cluster count, not by what the
+    /// directory entry claims.
+    #[test]
+    fn bitmap_read_is_bounded_by_the_cluster_count() {
+        let mut boot = [0u8; 512];
+        boot[3..11].copy_from_slice(b"EXFAT   ");
+        boot[72..80].copy_from_slice(&48u64.to_le_bytes());
+        boot[80..84].copy_from_slice(&8u32.to_le_bytes());
+        boot[88..92].copy_from_slice(&16u32.to_le_bytes());
+        boot[92..96].copy_from_slice(&32u32.to_le_bytes());
+        boot[96..100].copy_from_slice(&2u32.to_le_bytes());
+        boot[108] = 9;
+        boot[110] = 1;
+        boot[510] = 0x55;
+        boot[511] = 0xAA;
+        let mut img = vec![0u8; 48 * 512];
+        img[..512].copy_from_slice(&boot);
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("x.img");
+        std::fs::write(&p, &img).unwrap();
+        let src = Source::open(&p).unwrap();
+        let vol = Volume::parse(&src, 0).unwrap();
+        assert_eq!(vol.bitmap_bytes(u64::MAX), 4, "32 clusters need 4 bytes");
+        assert_eq!(vol.bitmap_bytes(2), 2, "a shorter claim is honoured");
     }
 
     #[test]

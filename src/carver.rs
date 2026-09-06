@@ -448,16 +448,21 @@ fn read_checkpoint(path: &std::path::Path) -> Option<LoadedCheckpoint> {
                 }
             }
             Some("file") => {
-                if let (Some(ext), Some(offset), Some(size), Some(sha), Some(name)) = (
+                // The line is `file ext offset size sha name confidence`;
+                // `it` was split into six pieces, so the last one holds the
+                // name and the grade together (a name never has a space, but
+                // splitting from the right keeps it right if one ever does).
+                if let (Some(ext), Some(offset), Some(size), Some(sha), Some(rest)) = (
                     it.next().and_then(intern_ext),
                     it.next().and_then(|v| v.parse::<u64>().ok()),
                     it.next().and_then(|v| v.parse::<u64>().ok()),
                     it.next().and_then(parse_hex32),
                     it.next(),
                 ) {
-                    let confidence = match it.next() {
-                        Some("verified") => Confidence::Verified,
-                        Some("truncated") => Confidence::Truncated,
+                    let (name, grade) = rest.rsplit_once(' ').unwrap_or((rest, ""));
+                    let confidence = match grade {
+                        "verified" => Confidence::Verified,
+                        "truncated" => Confidence::Truncated,
                         _ => Confidence::Plausible,
                     };
                     *stats.per_type.entry(ext.to_string()).or_insert(0) += 1;
@@ -7293,6 +7298,44 @@ impl ProgressSink for NoProgress {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A checkpoint's `file` lines round-trip name and grade exactly: a
+    /// resumed run's manifest must be the uninterrupted run's.
+    #[test]
+    fn checkpoint_file_lines_round_trip_name_and_grade() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("scan.checkpoint");
+        let mut stats = CarveStats::default();
+        for (i, (name, grade)) in [
+            ("00000000_0x0000000000000400.jpg", Confidence::Verified),
+            ("jpg/00000001_0x0000000000001000.jpg", Confidence::Truncated),
+            ("00000002_0x0000000000002000.wav", Confidence::Plausible),
+        ]
+        .iter()
+        .enumerate()
+        {
+            stats.files.push(CarvedFile {
+                name: name.to_string(),
+                ext: name.rsplit('.').next().unwrap().to_string(),
+                offset: 0x400 * (i as u64 + 1),
+                size: 100 + i as u64,
+                sha256: [i as u8; 32],
+                confidence: *grade,
+            });
+        }
+        stats.files_recovered = 3;
+        write_checkpoint(&path, 4096, 8192, 0, &stats, &HashSet::new(), false).unwrap();
+        let loaded = read_checkpoint(&path).unwrap();
+        assert_eq!(loaded.stats.files.len(), 3);
+        for (a, b) in loaded.stats.files.iter().zip(&stats.files) {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.ext, b.ext);
+            assert_eq!(a.offset, b.offset);
+            assert_eq!(a.size, b.size);
+            assert_eq!(a.sha256, b.sha256);
+            assert_eq!(a.confidence, b.confidence);
+        }
+    }
 
     /// Text following an MP4 on disk must not be read as more boxes: its
     /// four printable bytes are not a box type, so the walk ends at `mdat`.

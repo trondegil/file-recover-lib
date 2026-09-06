@@ -611,3 +611,71 @@ fn end_of_run_counts_match_the_grades() {
         (1, 1, 1)
     );
 }
+
+// --- Dry run (moved from tests/dry_run_test.rs) --------------------------------
+
+/// A minimal BMP whose total size is recorded in the header at offset 2.
+fn bare_bmp(total: usize) -> Vec<u8> {
+    let mut v = vec![0u8; total];
+    v[0..2].copy_from_slice(b"BM");
+    v[2..6].copy_from_slice(&(total as u32).to_le_bytes());
+    v
+}
+
+/// `CarveOptions::dry_run`: the carver tallies what it would recover (counts,
+/// sizes, per-type, manifest records) without writing any files.
+#[test]
+fn dry_run_tallies_without_writing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path = tmp.path().join("disk.img");
+    let out_dir = tmp.path().join("out");
+
+    let file = bare_bmp(200);
+    let mut img = std::fs::File::create(&img_path).unwrap();
+    img.write_all(&[0u8; 300]).unwrap();
+    img.write_all(&file).unwrap();
+    img.write_all(&[0u8; 300]).unwrap();
+    img.flush().unwrap();
+    drop(img);
+
+    let source = Source::open(&img_path).unwrap();
+    let sigs = signatures::select(&["bmp".to_string()]).unwrap();
+    let opts = |dry_run: bool| CarveOptions {
+        output_dir: out_dir.clone(),
+        start: 0,
+        end: None,
+        min_size: 0,
+        max_size: None,
+        max_files: None,
+        allow_nested: false,
+        validate: false,
+        dedup: false,
+        progress: false,
+        checkpoint: None,
+        resume: false,
+        organize: false,
+        dry_run,
+        align: 1,
+    };
+
+    // Dry run: the file is found and tallied, but nothing is written.
+    let stats = carver::carve(&source, &sigs, &opts(true), &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 1, "the file is tallied");
+    assert_eq!(stats.bytes_recovered, 200);
+    assert_eq!(stats.per_type.get("bmp"), Some(&1));
+    assert_eq!(stats.files.len(), 1, "the manifest record is produced");
+    assert!(
+        !out_dir.exists() || std::fs::read_dir(&out_dir).unwrap().next().is_none(),
+        "dry run must not write any files"
+    );
+
+    // A real run with the same inputs writes the file.
+    let stats = carver::carve(&source, &sigs, &opts(false), &NoProgress).unwrap();
+    assert_eq!(stats.files_recovered, 1);
+    let written: Vec<Vec<u8>> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+        .collect();
+    assert_eq!(written.len(), 1);
+    assert_eq!(written[0], file, "the real run writes the carved bytes");
+}

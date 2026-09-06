@@ -320,3 +320,33 @@ fn a_truncated_indirect_block_never_yields_a_padded_file() {
         assert_eq!(stats.skipped, 1);
     }
 }
+
+// --- Dry run (moved from tests/dryrun_test.rs) ---------------------------------
+
+/// `RecoverOptions::dry_run`: files are reported but not written.
+#[test]
+fn dry_run_reports_without_writing() {
+    let payload = b"will not be written in dry run";
+    let tmp = tempfile::tempdir().unwrap();
+    let img_path = tmp.path().join("disk.img");
+    std::fs::write(&img_path, common::ext_volume("ghost.bin", payload)).unwrap();
+    let out_dir = tmp.path().join("out");
+
+    let source = Source::open(&img_path).unwrap();
+    let vol = ext4::Volume::parse(&source, 0).unwrap();
+    let opts = RecoverOptions {
+        dry_run: true,
+        ..Default::default()
+    };
+    let stats = vol.recover_deleted(&source, &out_dir, &opts).unwrap();
+
+    // Reported as recoverable...
+    assert_eq!(stats.recovered, 1);
+    assert_eq!(stats.files.len(), 1);
+    assert_eq!(stats.files[0].path.to_string_lossy(), "ghost.bin");
+    assert!(stats.files[0].recovered);
+    assert_eq!(stats.files[0].size, payload.len() as u64);
+    // ...but nothing actually written to disk.
+    assert!(!out_dir.join("ghost.bin").exists());
+    assert!(!out_dir.exists());
+}

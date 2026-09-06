@@ -66,6 +66,33 @@ pub fn serve<R: BufRead, W: Write>(reader: R, mut writer: W) -> Result<()> {
 /// notification, which gets no reply).
 pub fn handle_request(req: &Json) -> Option<Json> {
     let id = req.get("id").cloned();
+    // A JSON-RPC 2.0 request names its version, has a string method, and an
+    // id that is a string, a number, or null. Anything else is an invalid
+    // request (-32600), answered with whatever id could be read.
+    let version_ok = req.get("jsonrpc").and_then(|v| v.as_str()) == Some("2.0");
+    let method_ok = req.get("method").and_then(|m| m.as_str()).is_some();
+    let id_ok = matches!(
+        id,
+        None | Some(Json::Null) | Some(Json::Str(_)) | Some(Json::Num(_))
+    );
+    if !version_ok || !method_ok || !id_ok {
+        let reply_id = match id {
+            Some(Json::Str(_)) | Some(Json::Num(_)) => id.clone().unwrap(),
+            _ => Json::Null,
+        };
+        let what = if !version_ok {
+            "missing or unsupported jsonrpc version (expected \"2.0\")"
+        } else if !method_ok {
+            "missing method"
+        } else {
+            "id must be a string, a number, or null"
+        };
+        return Some(error_response(
+            reply_id,
+            -32600,
+            &format!("invalid request: {what}"),
+        ));
+    }
     let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let params = req.get("params");
 
@@ -95,10 +122,31 @@ pub fn handle_request(req: &Json) -> Option<Json> {
         "tools/list" => Some(ok_response(id?, obj(vec![("tools", tool_definitions())]))),
         "tools/call" => {
             let id = id?;
-            let name = params
-                .and_then(|p| p.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            // The request shape is protocol: params must be an object naming
+            // a known tool (MCP: unknown tool and malformed params are both
+            // -32602). What the tool then makes of its arguments is a tool
+            // error, reported in band with `isError`.
+            let Some(Json::Obj(_)) = params else {
+                return Some(error_response(
+                    id,
+                    -32602,
+                    "invalid params: tools/call needs an object with `name` and `arguments`",
+                ));
+            };
+            let Some(name) = params.and_then(|p| p.get("name")).and_then(|v| v.as_str()) else {
+                return Some(error_response(
+                    id,
+                    -32602,
+                    "invalid params: `name` must be a string",
+                ));
+            };
+            if !TOOL_NAMES.contains(&name) {
+                return Some(error_response(
+                    id,
+                    -32602,
+                    &format!("invalid params: unknown tool '{name}'"),
+                ));
+            }
             let args = params.and_then(|p| p.get("arguments"));
             Some(match call_tool(name, args) {
                 Ok(value) => ok_response(id, tool_content(&value.to_string(), false)),
@@ -143,6 +191,21 @@ fn tool_content(text: &str, is_error: bool) -> Json {
         ("isError", Json::Bool(is_error)),
     ])
 }
+
+/// Every tool the server offers, the names `tools/call` accepts.
+const TOOL_NAMES: &[&str] = &[
+    "list_types",
+    "list_volumes",
+    "scan",
+    "image",
+    "undelete",
+    "verify",
+    "read_file",
+    "triage",
+    "identify",
+    "scan_status",
+    "scan_cancel",
+];
 
 fn tool_definitions() -> Json {
     let str_prop = |desc: &str| obj(vec![("type", s("string")), ("description", s(desc))]);
@@ -1174,6 +1237,18 @@ mod tests {
     fn notification_gets_no_response() {
         let req = json::parse(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).unwrap();
         assert!(handle_request(&req).is_none());
+    }
+
+    #[test]
+    fn the_tool_name_list_matches_the_definitions() {
+        let defs = tool_definitions();
+        let names: Vec<&str> = defs
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+            .collect();
+        assert_eq!(names, TOOL_NAMES);
     }
 
     #[test]
