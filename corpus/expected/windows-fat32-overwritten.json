@@ -1,7 +1,11 @@
 {
   "baseline": {
+    "recovered": [
+      "survivor.png"
+    ],
     "scan": 1,
-    "undelete": 1
+    "undelete": 1,
+    "unknown_verified": 0
   },
   "files": [
     {
@@ -35,8 +39,331 @@
     "sha256": "798d2072e810088b025b681b699583bc0fd586e5e0bb5c7995d4a32c9df4bc4d",
     "size": 67109376
   },
+  "live": [
+    {
+      "path": "filler/00.jpg",
+      "sha256": "2b4ee18107aceb27a78202203dd815d78ab61325094f8ad2b3d7032305273a3a",
+      "size": 1044481
+    },
+    {
+      "path": "filler/01.png",
+      "sha256": "a87c5d72e52cd767bd155374f2b6de42037d89a071b1e8880656d488f3d35ca7",
+      "size": 1044481
+    },
+    {
+      "path": "filler/02.bmp",
+      "sha256": "0ebd77f9294c4d5426a2d7f7e4d2f434530eb09435201c0c421baa655c8ad65b",
+      "size": 1044481
+    },
+    {
+      "path": "filler/03.pdf",
+      "sha256": "5ef0f5e411ec9016891d6f4168e253820e63b764badf166a9d711228ab929175",
+      "size": 1044481
+    },
+    {
+      "path": "filler/04.wav",
+      "sha256": "c83af611014141ea3de48bbf10f7473a15f4eec180ec52df3ae98f475b460a32",
+      "size": 1044481
+    },
+    {
+      "path": "filler/05.jpg",
+      "sha256": "a323850649ec09b4632eca3cd6322773d245c975f79d942bf069f85754e5c495",
+      "size": 1044481
+    },
+    {
+      "path": "filler/06.png",
+      "sha256": "f91a9b926629d49cc5e7cc5c057f39e26e9721821263ede60bc75a597bd365b3",
+      "size": 1044481
+    },
+    {
+      "path": "filler/07.bmp",
+      "sha256": "1cd7a434b55083d59aa107e78d227e8baf2cd843ffbae2b0687bb7cfcc39e0d5",
+      "size": 1044481
+    },
+    {
+      "path": "filler/08.pdf",
+      "sha256": "7f8d760f16f71356aaf38de97dfe74209a9ae18216ecbe1c1f707528dae4fe3e",
+      "size": 1044481
+    },
+    {
+      "path": "filler/09.wav",
+      "sha256": "86dcaaa126e5647d7a36ef0db6157afa347db0e226cec44797d3676b5c831384",
+      "size": 1044481
+    },
+    {
+      "path": "filler/10.jpg",
+      "sha256": "80de2e6ef7afcfbd90d2c0989850d20d05b153f9635673a61661d9ba70d3b9a4",
+      "size": 1044481
+    },
+    {
+      "path": "filler/11.png",
+      "sha256": "e5f53b8ce8eee7be25a69923ef6387df72a1bc2addbb868671746729ca02e17f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/12.bmp",
+      "sha256": "bfec9155168148bf3e8ff7d96857933696f168391d6399eac895ab2142ddb4f3",
+      "size": 1044481
+    },
+    {
+      "path": "filler/13.pdf",
+      "sha256": "82274b803b8e15422555ad282c6f08a6890ec9c3c88a5216540abe25d1eb2019",
+      "size": 1044481
+    },
+    {
+      "path": "filler/14.wav",
+      "sha256": "be06b8e29ab2d403d14a2edf3e9a155152b2148d7fd0c4950d23435fc08b09d2",
+      "size": 1044481
+    },
+    {
+      "path": "filler/15.jpg",
+      "sha256": "b28537e081b623ae6aa06c8fc7a31026a6f21ed8b4d2ca7092a12977d1b2e7b2",
+      "size": 1044481
+    },
+    {
+      "path": "filler/16.png",
+      "sha256": "5b5bbb8c2ba5ce2a70fcd39aac5c13f113907dc9edcecc784317ff37ad9b0bc5",
+      "size": 1044481
+    },
+    {
+      "path": "filler/17.bmp",
+      "sha256": "b7c098cac1e973429a511fb0666da3d82febb674c9b341251919da06089ad814",
+      "size": 1044481
+    },
+    {
+      "path": "filler/18.pdf",
+      "sha256": "d5046c6218005231c2ed6c4d278450ba0e5fb2692b46d09ff55de631c306aaa6",
+      "size": 1044481
+    },
+    {
+      "path": "filler/19.wav",
+      "sha256": "64067ff8ea3fbc05132bcdd536754a82fd1ebc5c749e39e9f13819c15d0b7afb",
+      "size": 1044481
+    },
+    {
+      "path": "filler/20.jpg",
+      "sha256": "9d2d35f79a2412d398c7349c53b400ba5ae75388a727b0d6b469825cb1fde9c2",
+      "size": 1044481
+    },
+    {
+      "path": "filler/21.png",
+      "sha256": "7b17935fc99e06c8c2205040d101f9b9dbeaef6d3fa9b4ec56945908613a4f9f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/22.bmp",
+      "sha256": "7689a18ea748a0cfb74e68ed298b8b0cc5b6405f1bdeef03430233e2c030a88d",
+      "size": 1044481
+    },
+    {
+      "path": "filler/23.pdf",
+      "sha256": "76ea50b5aa8b55bb8473c6bce302bd140a9649a27b171f3c19179e94becb581b",
+      "size": 1044481
+    },
+    {
+      "path": "filler/24.wav",
+      "sha256": "a516f1a2c438fcd1186cc77ba31ecea0f900435f8ccf332155004f186961c52f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/25.jpg",
+      "sha256": "98c2103dd3ea98f6769c9c2441f0a63cb6cc2dedb46e91853cec4c50e260756f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/26.png",
+      "sha256": "ea9e356e82419f7b198dc792331b71903285f22118ee58eded3890fdb1c407f9",
+      "size": 1044481
+    },
+    {
+      "path": "filler/27.bmp",
+      "sha256": "919cb600a0417d784598ab57ee06455508a808100243c03293b898883af5e581",
+      "size": 1044481
+    },
+    {
+      "path": "filler/28.pdf",
+      "sha256": "ca78126ff46a63a2ab8053d6e7f55351afa86c9fd96a04ef5da9440555361e71",
+      "size": 1044481
+    },
+    {
+      "path": "filler/29.wav",
+      "sha256": "af347f9c57fc968caa08803e029f0ad9ff76b738709acbbcf4cdf086d427eb27",
+      "size": 1044481
+    },
+    {
+      "path": "filler/30.jpg",
+      "sha256": "ec8c659e343372589f62d4b94cf6cdd31ce293010dbc1a6d07f8d1cf074d3cda",
+      "size": 1044481
+    },
+    {
+      "path": "filler/31.png",
+      "sha256": "c49da8a51eab262627fbf0f594ba22bf8aefc0070a545a245560ca42354c1fe2",
+      "size": 1044481
+    },
+    {
+      "path": "filler/32.bmp",
+      "sha256": "130da9ae188b1fd5b4212676c821ac2fc6cdbe1acb9f928b8ccc936f5e10155d",
+      "size": 1044481
+    },
+    {
+      "path": "filler/33.pdf",
+      "sha256": "181452b0d88d120caed3e22a31cd95c97fec4fbcb4edfa263334f140e610e799",
+      "size": 1044481
+    },
+    {
+      "path": "filler/34.wav",
+      "sha256": "ff20d38f9fbd28914b15d31e83670d49cf7067e302a6c60cb404ae11b4f9e95f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/35.jpg",
+      "sha256": "1d1a30e69e3892c7ef3e1a92bd382ceb49e102fbcd46266558e1fb624a751fb0",
+      "size": 1044481
+    },
+    {
+      "path": "filler/36.png",
+      "sha256": "9d0c665953f50b0fda4e889b0bd2d839d9b00a9ef4e43c315dcf60dc1a3a2376",
+      "size": 1044481
+    },
+    {
+      "path": "filler/37.bmp",
+      "sha256": "f43fd513cb8aa21e13cec2c841feb45ab8ce25ce4b0a9018e4cd381b74fb4730",
+      "size": 1044481
+    },
+    {
+      "path": "filler/38.pdf",
+      "sha256": "8f3153a6f45c0898e695a5f2c176050077dfc0f2b17d6c032ba1e8a201595a94",
+      "size": 1044481
+    },
+    {
+      "path": "filler/39.wav",
+      "sha256": "1276d0614695dffef7cc73f59d5b4db6ed49830a3c155a7374e54f6d8c0a4712",
+      "size": 1044481
+    },
+    {
+      "path": "filler/40.jpg",
+      "sha256": "7e09bf51ffbd9ff482f49230fc71cb4c7b218e9e7f79c4d5fce0dd54ca058068",
+      "size": 1044481
+    },
+    {
+      "path": "filler/41.png",
+      "sha256": "1e1a738eb5119f0eae94b8887c858e636fa7418fd5584e819978b0a90ab87bb4",
+      "size": 1044481
+    },
+    {
+      "path": "filler/42.bmp",
+      "sha256": "7584b021eb201fec4f84f67fc1a2f44b984fb1a19aeee410775b47255dacf1eb",
+      "size": 1044481
+    },
+    {
+      "path": "filler/43.pdf",
+      "sha256": "0debe93fa3cb13852184d533aa556939d919e81090f21e6e5a4fbd161d948ffa",
+      "size": 1044481
+    },
+    {
+      "path": "filler/44.wav",
+      "sha256": "7b9dc46d6db57777ea133569983a17075b8a5baee7f7801853a48c8800f3ebba",
+      "size": 1044481
+    },
+    {
+      "path": "filler/45.jpg",
+      "sha256": "9418fa8a959991cb1683fb673daadd3d0edc648385452e4f3519afa14a1ab58a",
+      "size": 1044481
+    },
+    {
+      "path": "filler/46.png",
+      "sha256": "9f1be0fca277089cd2d7993facd7821569f7a7691526df9a38922155d52e4475",
+      "size": 1044481
+    },
+    {
+      "path": "filler/47.bmp",
+      "sha256": "0a28fe36d98a6142b2a3f35d8c92f4a19ce0715a97754fb4707f4c9710037e55",
+      "size": 1044481
+    },
+    {
+      "path": "filler/48.pdf",
+      "sha256": "45387cbe6e8fd9d727aa4c31ab8e5403f02c5199da336ed82529237303b1fca3",
+      "size": 1044481
+    },
+    {
+      "path": "filler/49.wav",
+      "sha256": "1b470f4ccd87eb8513d707d670d4977acaec98bcef926c0d107c93cb4e7b4293",
+      "size": 1044481
+    },
+    {
+      "path": "filler/50.jpg",
+      "sha256": "311960ed5f2183ede8ba240b920ae6e571209eaef999e1a5bf6b348614720593",
+      "size": 1044481
+    },
+    {
+      "path": "filler/51.png",
+      "sha256": "28ed4abe925aed45ad3b4932bdc489f10fe2968193bcc89fac619cf229e8b603",
+      "size": 1044481
+    },
+    {
+      "path": "filler/52.bmp",
+      "sha256": "7ecf0d0bd3cb3147aee77e7a9ba6f108deb3b7e9053585cceae276857c14db80",
+      "size": 1044481
+    },
+    {
+      "path": "filler/53.pdf",
+      "sha256": "2bd9e149eacedbb44c789a93a9b3a9fec19000cb6459a6294425137dc635115f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/54.wav",
+      "sha256": "656641fefd6631bf434738e6e3aebcd46e83480f9e1af56fe7a012e5ebf4da60",
+      "size": 1044481
+    },
+    {
+      "path": "filler/55.jpg",
+      "sha256": "fd8044603427dc54411056b16168e3c5bf9d0448c145bd0f18da6247d7d29b44",
+      "size": 1044481
+    },
+    {
+      "path": "filler/56.png",
+      "sha256": "20520b2c52f7390e69e8b4727444facc3412a3a9171b09f67898f6d9b6b6273a",
+      "size": 1044481
+    },
+    {
+      "path": "filler/57.bmp",
+      "sha256": "5f3464c72246e4b1f23da346638d68e791a93412c7d40224a6849ad4b6a5c51e",
+      "size": 1044481
+    },
+    {
+      "path": "filler/58.pdf",
+      "sha256": "c0de6e2a832a0f3f81768151852ef15f6210e09d83063f3084150ae878968d64",
+      "size": 1044481
+    },
+    {
+      "path": "filler/59.wav",
+      "sha256": "ad56ba7f8ff1c9e0eae38401dc2087ea534f892929410fa53a127628fd911f5f",
+      "size": 1044481
+    },
+    {
+      "path": "filler/60.jpg",
+      "sha256": "8b13d6fdb3ba5c5c5a0769a4f1c049053c9b6462f2401bef093c7cce4358cd54",
+      "size": 1044481
+    },
+    {
+      "path": "filler/61.png",
+      "sha256": "ed8e2709d8cfdf944f7461a8ec4f9f6e8ae4a41e0040a56469da2af401ef23ea",
+      "size": 1044481
+    },
+    {
+      "path": "new-data.bin",
+      "sha256": "cdabdd38bf60059bc4e192c7873e6119ee45c2a3e93603b6b699fa4010e1519a",
+      "size": 4194313
+    },
+    {
+      "path": "new-notes.txt",
+      "sha256": "6557c5b12118b48d80becc7c1f660e8766e51d571f66d46596185b8410b19da6",
+      "size": 204811
+    }
+  ],
   "live_files": 64,
   "name": "windows-fat32-overwritten",
+  "plan_version": 1,
   "platform": "windows",
   "scenario": "overwritten",
   "source": "Windows 10.0.26100 diskpart format fs=fat32 quick (fixed VHD)"

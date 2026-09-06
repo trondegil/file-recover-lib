@@ -16,6 +16,7 @@ if [ "$(uname -s)" != "Linux" ] || [ -n "${CORPUS_DOCKER:-}" ]; then
     exec docker run --rm --privileged \
         -v "$REPO:/work" -w /work \
         -e CORPUS_SCENARIOS -e CORPUS_ONLY -e CORPUS_SEED -e CORPUS_VOLUME_SIZE \
+        -e CORPUS_IMAGES -e CORPUS_WORK -e CORPUS_EXPECTED -e CORPUS_LOCK \
         -e CARGO_TARGET_DIR=/work/target/linux-corpus \
         rust:1-bookworm bash -c '
             set -e
@@ -50,6 +51,17 @@ fs_format() {
 
 fs_sync() {
     sync -f "$1" 2>/dev/null || sync
+}
+
+# `filefrag` reports how many extents a file occupies on ext4, XFS, FAT,
+# exFAT, and NTFS alike (it uses the FIEMAP/FIBMAP ioctls), so the expected
+# file can say whether "fragmented" really happened.
+fs_extents() {
+    local file="$1" rel="$2" count
+    count="$(filefrag "$file" 2>/dev/null | sed -n 's/.*: \([0-9][0-9]*\) extents\? found.*/\1/p')"
+    if [ -n "$count" ]; then
+        printf '%s\t%s\n' "$rel" "$count"
+    fi
 }
 
 fs_release() {

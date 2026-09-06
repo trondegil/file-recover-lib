@@ -1,7 +1,9 @@
 {
   "baseline": {
+    "recovered": [],
     "scan": 1,
-    "undelete": 0
+    "undelete": 0,
+    "unknown_verified": 0
   },
   "files": [
     {
@@ -51,8 +53,36 @@
     "sha256": "0f28e71defa79273d078f2489591a7097c0aa603918e445872a6f9a4fadf4328",
     "size": 536870912
   },
+  "live": [
+    {
+      "path": "Bilder/blåbær og jordbær.png",
+      "sha256": "64a7fd84089ccba2843ba06b99db9796466638216ee33b1224ffd2ef33c8678c",
+      "size": 99469
+    },
+    {
+      "path": "emoji 🌍🚀.bin",
+      "sha256": "3127445cf0a802dec71bb7290bcb6652982cba2821dcf60b713173f113b52ad8",
+      "size": 307075
+    },
+    {
+      "path": "Документы/отчёт за год.pdf",
+      "sha256": "8ef984902779728f913de07cd009f962bbc7a605a8537246a216af4f9471168b",
+      "size": 101261
+    },
+    {
+      "path": "写真/桜の木.jpg",
+      "sha256": "be7c1947155cc91e4314c0d447352c13217adeb12466f2f0598f6f9aea1a568a",
+      "size": 166139
+    },
+    {
+      "path": "한글 파일.txt",
+      "sha256": "49823ced164bff40b24ea257934d814e80dd30a6ff785eea62475bd9754b8c4d",
+      "size": 258839
+    }
+  ],
   "live_files": 5,
   "name": "linux-xfs-nonascii",
+  "plan_version": 1,
   "platform": "linux",
   "scenario": "nonascii",
   "source": "Linux 7.0.12-linuxkit mkfs.xfs version 6.1.0"
